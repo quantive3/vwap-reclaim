@@ -172,6 +172,10 @@ def detect_partial_reclaims(df_rth_filled, stretch_signals, params):
 
     return pd.DataFrame(enriched_signals)
 
+# Initialize a counter for total entry intent signals
+total_entry_intent_signals = 0
+days_processed = 0
+
 # === STEP 8: Backtest loop ===
 for date_obj in business_days:
     date = date_obj.strftime("%Y-%m-%d")
@@ -349,9 +353,15 @@ for date_obj in business_days:
         # === Insert strategy logic here ===
         stretch_signals = detect_stretch_signal(df_rth_filled, PARAMS)
         stretch_signals = detect_partial_reclaims(df_rth_filled, stretch_signals, PARAMS)
+        
+        # Count the number of entry intent signals for the day
+        daily_entry_intent_signals = stretch_signals['entry_intent'].sum()
+        total_entry_intent_signals += daily_entry_intent_signals
+        days_processed += 1
+
         if DEBUG_MODE:
-            print(f"🎯 Entry intent signals (valid reclaims): {stretch_signals['entry_intent'].sum()}")
-            print(stretch_signals[stretch_signals['entry_intent'] == True][['ts_raw', 'stretch_label', 'reclaim_price', 'vwap_at_reclaim']])
+            print(f"🎯 Entry intent signals (valid reclaims): {daily_entry_intent_signals}")
+#            print(stretch_signals[stretch_signals['entry_intent'] == True][['ts_raw', 'stretch_label', 'reclaim_price', 'vwap_at_reclaim']])
 #            print(stretch_signals[stretch_signals['entry_intent'] == True][['ts_raw', 'reclaim_ts', 'reclaim_price', 'vwap_at_reclaim']].head())
 #            print(f"🔍 Detected {len(stretch_signals)} stretch signals on {date}.")
 
@@ -365,3 +375,10 @@ for date_obj in business_days:
     except Exception as e:
         print(f"❌ {date} — Error: {str(e)}")
         continue
+
+# Calculate and log the average number of daily entry intent signals
+if days_processed > 0:
+    average_entry_intent_signals = total_entry_intent_signals / days_processed
+    print(f"📊 Average daily entry intent signals over the period: {average_entry_intent_signals:.2f}")
+else:
+    print("⚠️ No days processed, cannot calculate average entry intent signals.")
