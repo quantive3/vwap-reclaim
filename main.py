@@ -18,8 +18,8 @@ import numpy as np
 # === STEP 6: Define Parameters ===
 PARAMS = {
     # Backtest period
-    'start_date': "2023-01-23",
-    'end_date': "2023-01-27",
+    'start_date': "2023-01-01",
+    'end_date': "2023-01-31",
     
     # Strategy parameters
     'stretch_threshold': 0.003,  # 0.3%
@@ -1252,6 +1252,24 @@ if all_contracts:
             print(f"  Median P&L: {pnl_data.median():.2f}%")
             print(f"  Min P&L: {pnl_data.min():.2f}%")
             print(f"  Max P&L: {pnl_data.max():.2f}%")
+            
+            # Calculate dollar P&L statistics
+            contracts_df['pnl_dollars'] = contracts_df['exit_price'] - contracts_df['entry_option_price']
+            dollar_pnl_data = contracts_df['pnl_dollars'].dropna()
+            
+            if not dollar_pnl_data.empty:
+                print("\n💵 Dollar P&L Statistics:")
+                print(f"  Average P&L: ${dollar_pnl_data.mean():.2f}")
+                print(f"  Median P&L: ${dollar_pnl_data.median():.2f}")
+                print(f"  Min P&L: ${dollar_pnl_data.min():.2f}")
+                print(f"  Max P&L: ${dollar_pnl_data.max():.2f}")
+                
+                # Calculate total capital risked and total P&L
+                total_pnl = dollar_pnl_data.sum()
+                total_risked = contracts_df['entry_option_price'].sum()
+                
+                print(f"\n  Total capital risked: ${total_risked:.2f}")
+                print(f"  Total P&L: ${total_pnl:.2f} ({(total_pnl/total_risked*100):.2f}% return on risked capital)")
             
             # Calculate win rate
             profitable_trades = (pnl_data > 0).sum()
