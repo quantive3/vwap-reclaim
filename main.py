@@ -32,7 +32,9 @@ for d in [SPY_DIR, CHAIN_DIR, OPTION_DIR]:
 
 # === STEP 6: Define Parameters ===
 PARAMS = {
-    'stretch_threshold': 0.003  # 0.3%
+    'stretch_threshold': 0.003,  # 0.3%
+    'entry_start_time': time(9, 30),
+    'entry_end_time': time(16, 0),  
 }
 
 # === STEP 7: Stretch Signal Detection ===
@@ -67,7 +69,15 @@ def detect_stretch_signal(df_rth_filled, params):
         signals['close'] > signals['vwap_running'], 'above', 'below'
     )
     
-    # Log the first 5 stretch labels for "above" and "below"
+    # === Filter signals to within sweepable time range ===
+    entry_start = params['entry_start_time']
+    entry_end = params['entry_end_time']
+
+    signals['ts_obj'] = signals['ts_raw'].dt.time
+    signals = signals[(signals['ts_obj'] >= entry_start) & (signals['ts_obj'] <= entry_end)]
+    signals.drop(columns=['ts_obj'], inplace=True)
+
+        # Log the first 5 stretch labels for "above" and "below"
     if DEBUG_MODE:
         print("\nFirst 5 'Above' Stretch Signals:")
         print(signals[signals['stretch_label'] == 'above'][['timestamp', 'close', 'vwap_running', 'percentage_stretch', 'stretch_label']].head())
