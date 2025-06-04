@@ -76,6 +76,12 @@ def detect_stretch_signal(df_rth_filled, params):
     signals['ts_obj'] = signals['ts_raw'].dt.time
     signals = signals[(signals['ts_obj'] >= entry_start) & (signals['ts_obj'] <= entry_end)]
     signals.drop(columns=['ts_obj'], inplace=True)
+    signals = signals[signals['ts_raw'].notna()].sort_values("ts_raw").reset_index(drop=True)
+
+    if DEBUG_MODE:
+        print("\n🧹 Post-filter signal integrity check:")
+        print(f"  NaT timestamps: {signals['ts_raw'].isna().sum()}")
+        print(f"  Time ordered: {signals['ts_raw'].is_monotonic_increasing}")
 
         # Log the first 5 stretch labels for "above" and "below"
     if DEBUG_MODE:
