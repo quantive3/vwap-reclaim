@@ -18,8 +18,8 @@ import numpy as np
 # === STEP 6: Define Parameters ===
 PARAMS = {
     # Backtest period
-    'start_date': "2023-01-04",
-    'end_date': "2023-01-04",
+    'start_date': "2023-01-01",
+    'end_date': "2023-01-31",
     
     # Strategy parameters
     'stretch_threshold': 0.003,  # 0.3%
@@ -41,7 +41,7 @@ PARAMS = {
     'late_entry_cutoff_time': time(15, 54),  # No new entries after this time
     
     # Latency simulation
-    'latency_seconds': 3,    # Seconds delay between signal and execution (0 = disabled)
+    'latency_seconds': 1,    # Seconds delay between signal and execution (0 = disabled)
     
     # Instrument selection
     'ticker': 'SPY',
