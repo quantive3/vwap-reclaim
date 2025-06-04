@@ -36,6 +36,9 @@ PARAMS = {
     'max_trade_duration_seconds': 300,  # Exit after 300 seconds (5 minutes)
     'end_of_day_exit_time': time(15, 55),  # 3:55 PM exit cutoff
     
+    # Latency simulation
+    'latency_seconds': 3,    # Seconds delay between signal and execution (0 = disabled)
+    
     # Instrument selection
     'ticker': 'SPY',
     'require_same_day_expiry': True,  # Whether to strictly require same-day expiry options
@@ -90,6 +93,8 @@ issue_tracker = {
         "forced_exit_end_of_data": 0,  # Added for tracking forced exits
         "exit_evaluation_error": 0,  # Added for tracking errors during exit evaluation
         "forced_exit_error": 0,     # Added for tracking errors during forced exit
+        "latency_entry_failures": 0, # Added for tracking entry failures due to latency
+        "latency_exit_failures": 0,  # Added for tracking exit failures due to latency
         "other": 0,
         "details": []  # Store details for uncommon errors
     },
@@ -327,6 +332,53 @@ def detect_partial_reclaims(df_rth_filled, stretch_signals, params):
         enriched_signals.append(row)
 
     return pd.DataFrame(enriched_signals)
+
+# === STEP 7b-2: Apply Latency to Timestamps ===
+def apply_latency(original_timestamp, df_data, latency_seconds):
+    """
+    Apply execution latency to a timestamp and return the delayed timestamp and price data.
+    
+    Parameters:
+    - original_timestamp: The original signal timestamp
+    - df_data: DataFrame containing price data with 'ts_raw' timestamps column
+    - latency_seconds: Number of seconds to delay execution
+    
+    Returns:
+    - Dictionary containing:
+        - delayed_timestamp: Timestamp after adding latency
+        - delayed_row: DataFrame row at the delayed timestamp (or None if not found)
+        - delayed_price: Price at the delayed timestamp (or None if not found)
+        - is_valid: Boolean indicating if valid price data was found at delayed timestamp
+    """
+    # Calculate the delayed timestamp
+    delayed_timestamp = original_timestamp + pd.Timedelta(seconds=latency_seconds)
+    
+    # Find the row at the delayed timestamp
+    delayed_rows = df_data[df_data['ts_raw'] == delayed_timestamp]
+    
+    # Initialize return values
+    result = {
+        'original_timestamp': original_timestamp,
+        'delayed_timestamp': delayed_timestamp,
+        'delayed_row': None,
+        'delayed_price': None,
+        'is_valid': False
+    }
+    
+    # If we found a row at the delayed timestamp
+    if not delayed_rows.empty:
+        delayed_row = delayed_rows.iloc[0]
+        result['delayed_row'] = delayed_row
+        
+        # Get price (prefer VWAP if available, fallback to close)
+        if 'vwap' in delayed_row and pd.notna(delayed_row['vwap']):
+            result['delayed_price'] = delayed_row['vwap']
+            result['is_valid'] = True
+        elif pd.notna(delayed_row['close']):
+            result['delayed_price'] = delayed_row['close']
+            result['is_valid'] = True
+    
+    return result
 
 # === STEP 7c: Select Option Contract ===
 def select_option_contract(entry_signal, df_chain, spy_price, params):
@@ -686,31 +738,74 @@ def process_exits_for_contract(contract, params):
             )
             
             if should_exit:
-                contract['exit_time'] = current_time
-                contract['exit_price'] = current_price
+                # Store the original exit signal time (before latency)
+                original_exit_time = current_time
+                exit_time = current_time
+                exit_price = current_price
+                exit_staleness = price_staleness
+                exit_is_stale = is_price_stale
+                
+                # Apply latency to exit if configured
+                latency_seconds = params.get('latency_seconds', 0)
+                if latency_seconds > 0:
+                    # Apply exit latency
+                    latency_result = apply_latency(original_exit_time, future_prices, latency_seconds)
+                    
+                    if latency_result['is_valid']:
+                        # Use delayed time and price
+                        exit_time = latency_result['delayed_timestamp']
+                        exit_price = latency_result['delayed_price']
+                        
+                        # Update staleness for the delayed price
+                        if 'seconds_since_update' in latency_result['delayed_row']:
+                            exit_staleness = latency_result['delayed_row']['seconds_since_update']
+                            exit_is_stale = exit_staleness > staleness_threshold
+                        
+                        if params['debug_mode']:
+                            print(f"🕒 Exit latency applied: {latency_seconds}s")
+                            print(f"   Original signal: {original_exit_time.strftime('%H:%M:%S')}")
+                            print(f"   Execution time: {exit_time.strftime('%H:%M:%S')}")
+                            print(f"   Price difference: ${exit_price - current_price:.4f}")
+                    else:
+                        # If we can't find data at the delayed timestamp, continue looking
+                        # This is different from entry - we want to keep trying to exit
+                        exit_latency_msg = f"No price data at exit latency of {latency_seconds}s from {original_exit_time} - continuing to next check"
+                        if params['debug_mode']:
+                            print(f"⚠️ {exit_latency_msg}")
+                        
+                        # Track this issue but continue processing
+                        entry_date = contract['entry_time'].strftime("%Y-%m-%d")
+                        track_issue("errors", "latency_exit_failures", exit_latency_msg, level="error", date=entry_date)
+                        continue
+                
+                contract['exit_time'] = exit_time
+                contract['original_exit_time'] = original_exit_time
+                contract['latency_seconds'] = params.get('latency_seconds', 0)
+                contract['exit_price'] = exit_price
                 contract['exit_reason'] = reason
-                contract['pnl_percent'] = (current_price - contract['entry_option_price']) / contract['entry_option_price'] * 100
-                contract['trade_duration_seconds'] = (current_time - entry_time).total_seconds()
+                contract['pnl_percent'] = (exit_price - contract['entry_option_price']) / contract['entry_option_price'] * 100
+                contract['trade_duration_seconds'] = (exit_time - contract['entry_time']).total_seconds()
+                contract['original_trade_duration_seconds'] = (original_exit_time - contract['original_signal_time']).total_seconds() if 'original_signal_time' in contract else None
                 contract['is_closed'] = True
                 
                 # Store exit price staleness info
-                contract['exit_price_staleness_seconds'] = price_staleness
-                contract['is_exit_price_stale'] = is_price_stale
+                contract['exit_price_staleness_seconds'] = exit_staleness
+                contract['is_exit_price_stale'] = exit_is_stale
                 
                 # Log staleness warning if needed
-                if is_price_stale and params['report_stale_prices']:
-                    entry_date = entry_time.strftime("%Y-%m-%d")
-                    staleness_msg = f"Using stale option price at exit for {contract['ticker']} - {price_staleness:.1f} seconds old"
+                if exit_is_stale and params['report_stale_prices']:
+                    entry_date = contract['entry_time'].strftime("%Y-%m-%d")
+                    staleness_msg = f"Using stale option price at exit for {contract['ticker']} - {exit_staleness:.1f} seconds old"
                     print(f"⚠️ {staleness_msg}")
                     track_issue("warnings", "price_staleness", staleness_msg, date=entry_date)
                 
                 if params['debug_mode']:
                     pnl_str = f"{contract['pnl_percent']:.2f}%" if contract['pnl_percent'] is not None else "N/A"
                     duration_str = f"{contract['trade_duration_seconds']:.0f}s" if contract['trade_duration_seconds'] is not None else "N/A"
-                    print(f"🚪 Exit: {contract['ticker']} at {current_time.strftime('%H:%M:%S')} - Reason: {reason}")
-                    print(f"   Entry: ${contract['entry_option_price']:.2f}, Exit: ${current_price:.2f}, P&L: {pnl_str}, Duration: {duration_str}")
-                    if is_price_stale:
-                        print(f"   ⚠️ Exit price is stale: {price_staleness:.1f} seconds old")
+                    print(f"🚪 Exit: {contract['ticker']} at {exit_time.strftime('%H:%M:%S')} - Reason: {reason}")
+                    print(f"   Entry: ${contract['entry_option_price']:.2f}, Exit: ${exit_price:.2f}, P&L: {pnl_str}, Duration: {duration_str}")
+                    if exit_is_stale:
+                        print(f"   ⚠️ Exit price is stale: {exit_staleness:.1f} seconds old")
                 
                 break
         except Exception as e:
@@ -732,31 +827,40 @@ def process_exits_for_contract(contract, params):
     # Force exit for any trades not closed (data missing or other issue)
     if not contract['is_closed']:
         try:
+            # Get the last available row for forced exit
             last_row = future_prices.iloc[-1]
-            last_time = last_row['ts_raw']
-            last_price = last_row['vwap'] if 'vwap' in last_row and pd.notna(last_row['vwap']) else last_row['close']
+            original_exit_time = last_row['ts_raw']
+            exit_time = original_exit_time
+            exit_price = last_row['vwap'] if 'vwap' in last_row and pd.notna(last_row['vwap']) else last_row['close']
             
             # Check staleness for forced exit
             staleness_threshold = params['price_staleness_threshold_seconds']
-            price_staleness = last_row['seconds_since_update'] if 'seconds_since_update' in last_row else 0.0
-            is_price_stale = price_staleness > staleness_threshold
+            exit_staleness = last_row['seconds_since_update'] if 'seconds_since_update' in last_row else 0.0
+            exit_is_stale = exit_staleness > staleness_threshold
             
-            contract['exit_time'] = last_time
-            contract['exit_price'] = last_price
+            # Forced exits, we don't apply latency since we're already at the end of data
+            # But we still track both original and execution times for consistency
+            
+            # Store both original and execution times (which are the same for forced exits)
+            contract['exit_time'] = exit_time
+            contract['original_exit_time'] = original_exit_time
+            # Latency value is already stored during entry
+            contract['exit_price'] = exit_price
             contract['exit_reason'] = "end_of_data"
-            if pd.notna(last_price):
-                contract['pnl_percent'] = (last_price - contract['entry_option_price']) / contract['entry_option_price'] * 100
-            contract['trade_duration_seconds'] = (last_time - entry_time).total_seconds()
+            if pd.notna(exit_price):
+                contract['pnl_percent'] = (exit_price - contract['entry_option_price']) / contract['entry_option_price'] * 100
+            contract['trade_duration_seconds'] = (exit_time - contract['entry_time']).total_seconds()
+            contract['original_trade_duration_seconds'] = (original_exit_time - contract['original_signal_time']).total_seconds() if 'original_signal_time' in contract else None
             contract['is_closed'] = True
             
             # Store exit price staleness info
-            contract['exit_price_staleness_seconds'] = price_staleness
-            contract['is_exit_price_stale'] = is_price_stale
+            contract['exit_price_staleness_seconds'] = exit_staleness
+            contract['is_exit_price_stale'] = exit_is_stale
             
             # Log staleness warning if needed
-            if is_price_stale and params['report_stale_prices']:
-                entry_date = entry_time.strftime("%Y-%m-%d")
-                staleness_msg = f"Using stale option price at forced exit for {contract['ticker']} - {price_staleness:.1f} seconds old"
+            if exit_is_stale and params['report_stale_prices']:
+                entry_date = contract['entry_time'].strftime("%Y-%m-%d")
+                staleness_msg = f"Using stale option price at forced exit for {contract['ticker']} - {exit_staleness:.1f} seconds old"
                 print(f"⚠️ {staleness_msg}")
                 track_issue("warnings", "price_staleness", staleness_msg, date=entry_date)
             
@@ -1127,18 +1231,45 @@ for date_obj in business_days:
                         issue_tracker["opportunities"]["failed_entries_data_issues"] += 1
                         continue
                     
-                    # Lookup option price at entry time
-                    option_row = df_option_aligned[df_option_aligned['ts_raw'] == entry_time]
+                    # Store original signal time before applying latency
+                    original_signal_time = entry_time
                     
-                    if option_row.empty:
-                        missing_price_msg = f"Could not find option price for entry at {entry_time} - skipping this entry"
-                        print(f"⚠️ {missing_price_msg}")
-                        track_issue("errors", "missing_option_price_data", missing_price_msg, level="error", date=date)
-                        issue_tracker["opportunities"]["failed_entries_data_issues"] += 1
-                        continue
-                    
-                    # Extract entry price for the option
-                    option_entry_price = option_row['vwap'].iloc[0]
+                    # Apply latency to entry if configured
+                    latency_seconds = PARAMS.get('latency_seconds', 0)
+                    if latency_seconds > 0:
+                        latency_result = apply_latency(original_signal_time, df_option_aligned, latency_seconds)
+                        
+                        if latency_result['is_valid']:
+                            # Use delayed time and price
+                            entry_time = latency_result['delayed_timestamp']
+                            option_entry_price = latency_result['delayed_price']
+                            option_row = df_option_aligned[df_option_aligned['ts_raw'] == entry_time]
+                            
+                            if DEBUG_MODE:
+                                print(f"🕒 Entry latency applied: {latency_seconds}s")
+                                print(f"   Original signal: {original_signal_time.strftime('%H:%M:%S')}")
+                                print(f"   Execution time: {entry_time.strftime('%H:%M:%S')}")
+                                print(f"   Price difference: ${latency_result['delayed_price'] - option_row['vwap'].iloc[0]:.4f}")
+                        else:
+                            # If we can't find data at the delayed timestamp, skip this entry
+                            latency_error_msg = f"No option price data after applying entry latency of {latency_seconds}s from {original_signal_time}"
+                            print(f"⚠️ {latency_error_msg}")
+                            track_issue("errors", "latency_entry_failures", latency_error_msg, level="error", date=date)
+                            issue_tracker["opportunities"]["failed_entries_data_issues"] += 1
+                            continue
+                    else:
+                        # Original logic without latency
+                        option_row = df_option_aligned[df_option_aligned['ts_raw'] == entry_time]
+                        
+                        if option_row.empty:
+                            missing_price_msg = f"Could not find option price for entry at {entry_time} - skipping this entry"
+                            print(f"⚠️ {missing_price_msg}")
+                            track_issue("errors", "missing_option_price_data", missing_price_msg, level="error", date=date)
+                            issue_tracker["opportunities"]["failed_entries_data_issues"] += 1
+                            continue
+                        
+                        # Extract entry price for the option
+                        option_entry_price = option_row['vwap'].iloc[0]
                     
                     # Check price staleness at entry
                     staleness_threshold = PARAMS['price_staleness_threshold_seconds']
@@ -1154,6 +1285,9 @@ for date_obj in business_days:
                     contract_with_entry = {
                         **selected_contract,
                         'entry_time': entry_time,
+                        'original_signal_time': original_signal_time if 'original_signal_time' in locals() else entry_time,
+                        'latency_seconds': PARAMS.get('latency_seconds', 0),
+                        'latency_applied': PARAMS.get('latency_seconds', 0) > 0,
                         'entry_spy_price': spy_price_at_entry,
                         'entry_option_price': option_entry_price,
                         'price_staleness_seconds': price_staleness,
@@ -1446,14 +1580,115 @@ if all_contracts:
             print(f"  Median duration: {duration_data.median():.1f} seconds")
             print(f"  Min duration: {duration_data.min():.1f} seconds")
             print(f"  Max duration: {duration_data.max():.1f} seconds")
+            
+            # Add original duration statistics if available (without latency)
+            if 'original_trade_duration_seconds' in contracts_df.columns:
+                original_duration_data = contracts_df['original_trade_duration_seconds'].dropna()
+                if not original_duration_data.empty:
+                    print("\n⏱️ Original Trade Duration Statistics (Without Latency):")
+                    print(f"  Average original duration: {original_duration_data.mean():.1f} seconds")
+                    print(f"  Median original duration: {original_duration_data.median():.1f} seconds")
+                    print(f"  Min original duration: {original_duration_data.min():.1f} seconds")
+                    print(f"  Max original duration: {original_duration_data.max():.1f} seconds")
+    
+    # Add latency statistics if latency was applied
+    if 'latency_applied' in contracts_df.columns and contracts_df['latency_applied'].any():
+        print("\n🕒 Latency Simulation Statistics:")
+        
+        # Latency stats
+        if 'latency_seconds' in contracts_df.columns:
+            latency_avg = contracts_df['latency_seconds'].mean()
+            print(f"  Latency setting: {latency_avg:.1f} seconds")
+        
+        # Calculate latency impact on trades
+        if 'entry_option_price' in contracts_df.columns and 'original_signal_time' in contracts_df.columns:
+            # Create a subset of trades with all necessary data
+            latency_impact_df = contracts_df.dropna(subset=['original_signal_time', 'entry_time', 'original_exit_time', 'exit_time'])
+            
+            if not latency_impact_df.empty:
+                # Count trades affected by entry latency
+                entry_affected_count = len(latency_impact_df[latency_impact_df['entry_time'] > latency_impact_df['original_signal_time']])
+                entry_affected_pct = entry_affected_count / len(latency_impact_df) * 100
+                
+                # Count trades affected by exit latency
+                exit_affected_count = len(latency_impact_df[latency_impact_df['exit_time'] > latency_impact_df['original_exit_time']])
+                exit_affected_pct = exit_affected_count / len(latency_impact_df) * 100
+                
+                print(f"  Trades affected by entry latency: {entry_affected_count} ({entry_affected_pct:.1f}%)")
+                print(f"  Trades affected by exit latency: {exit_affected_count} ({exit_affected_pct:.1f}%)")
+                
+                # Attempt to measure P&L impact of latency if we can match original time pricing
+                try:
+                    # Calculate what P&L would have been without latency
+                    latency_impact = []
+                    
+                    for idx, contract in latency_impact_df.iterrows():
+                        # Get option dataframe from the contract's entry
+                        entry_date = contract['entry_time'].strftime('%Y-%m-%d')
+                        option_ticker = contract['ticker']
+                        option_path = os.path.join(OPTION_DIR, f"{entry_date}_{option_ticker.replace(':', '')}.pkl")
+                        
+                        if os.path.exists(option_path):
+                            # Load the option data
+                            df_option_data = pd.read_pickle(option_path)
+                            
+                            # Get original signal prices if possible
+                            original_entry_rows = df_option_data[df_option_data['timestamp'] == contract['original_signal_time']]
+                            original_exit_rows = df_option_data[df_option_data['timestamp'] == contract['original_exit_time']]
+                            
+                            if not original_entry_rows.empty and not original_exit_rows.empty:
+                                # Get prices at original timestamps
+                                original_entry_price = original_entry_rows['vwap'].iloc[0] if pd.notna(original_entry_rows['vwap'].iloc[0]) else original_entry_rows['close'].iloc[0]
+                                original_exit_price = original_exit_rows['vwap'].iloc[0] if pd.notna(original_exit_rows['vwap'].iloc[0]) else original_exit_rows['close'].iloc[0]
+                                
+                                # Calculate P&L without latency
+                                original_pnl_pct = ((original_exit_price - original_entry_price) / original_entry_price) * 100
+                                actual_pnl_pct = contract['pnl_percent']
+                                
+                                # Calculate the impact
+                                pnl_impact = actual_pnl_pct - original_pnl_pct
+                                
+                                latency_impact.append({
+                                    'ticker': option_ticker,
+                                    'entry_date': entry_date,
+                                    'original_pnl_percent': original_pnl_pct,
+                                    'actual_pnl_percent': actual_pnl_pct,
+                                    'pnl_impact': pnl_impact
+                                })
+                    
+                    # Convert to DataFrame for analysis
+                    if latency_impact:
+                        impact_df = pd.DataFrame(latency_impact)
+                        avg_impact = impact_df['pnl_impact'].mean()
+                        pos_impact_count = len(impact_df[impact_df['pnl_impact'] > 0])
+                        neg_impact_count = len(impact_df[impact_df['pnl_impact'] < 0])
+                        neutral_impact_count = len(impact_df[impact_df['pnl_impact'] == 0])
+                        total_impact_trades = len(impact_df)
+                        
+                        print(f"\n  Latency Impact on P&L (for {total_impact_trades} trades with complete data):")
+                        print(f"    Average P&L impact: {avg_impact:.2f}% per trade")
+                        print(f"    Positive impact: {pos_impact_count} trades ({pos_impact_count/total_impact_trades*100:.1f}%)")
+                        print(f"    Negative impact: {neg_impact_count} trades ({neg_impact_count/total_impact_trades*100:.1f}%)")
+                        print(f"    Neutral impact: {neutral_impact_count} trades ({neutral_impact_count/total_impact_trades*100:.1f}%)")
+                        
+                        # Calculate magnitude of impacts
+                        if pos_impact_count > 0:
+                            avg_pos_impact = impact_df[impact_df['pnl_impact'] > 0]['pnl_impact'].mean()
+                            print(f"    Average positive impact: +{avg_pos_impact:.2f}%")
+                        if neg_impact_count > 0:
+                            avg_neg_impact = impact_df[impact_df['pnl_impact'] < 0]['pnl_impact'].mean()
+                            print(f"    Average negative impact: {avg_neg_impact:.2f}%")
+                
+                except Exception as e:
+                    print(f"  Note: Could not calculate detailed latency P&L impact: {str(e)}")
     
     # Sample of contracts with entry and exit details
-    print("\n🔍 Sample of trades with P&L (original vs. slippage-adjusted):")
-    display_columns = ['entry_time', 'option_type', 'strike_price', 
+    print("\n🔍 Sample of trades with P&L (including latency and slippage):")
+    display_columns = ['original_signal_time', 'entry_time', 'option_type', 'strike_price', 
                        'entry_option_price', 'entry_option_price_slipped',
-                       'exit_price', 'exit_price_slipped',
+                       'original_exit_time', 'exit_time', 'exit_price', 'exit_price_slipped',
                        'pnl_percent', 'pnl_percent_slipped',
-                       'exit_reason', 'trade_duration_seconds']
+                       'exit_reason', 'trade_duration_seconds', 'original_trade_duration_seconds']
     
     # Only include columns that exist
     existing_columns = [col for col in display_columns if col in contracts_df.columns]
@@ -1509,6 +1744,8 @@ print(f"  - No future price data: {issue_tracker['errors']['no_future_price_data
 print(f"  - Forced exit at end of data: {issue_tracker['errors']['forced_exit_end_of_data']}")
 print(f"  - Exit evaluation error: {issue_tracker['errors']['exit_evaluation_error']}")
 print(f"  - Forced exit error: {issue_tracker['errors']['forced_exit_error']}")
+print(f"  - Latency entry failures: {issue_tracker['errors']['latency_entry_failures']}")
+print(f"  - Latency exit failures: {issue_tracker['errors']['latency_exit_failures']}")
 print(f"  - Other errors: {issue_tracker['errors']['other']}")
 
 # Show details of 'other' errors if any exist
