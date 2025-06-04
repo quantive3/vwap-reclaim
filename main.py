@@ -204,12 +204,7 @@ def detect_stretch_signal(df_rth_filled, params):
         (df_rth_filled['close'] - df_rth_filled['vwap_running']) / df_rth_filled['vwap_running']
     ) * 100
     signals = df_rth_filled[df_rth_filled['stretch_signal']].copy()
-    
-    # Log the first 5 stretch signals
-#    if DEBUG_MODE:
-#        print("\nFirst 5 Stretch Signals:")
-#        print(signals[['timestamp', 'close', 'vwap_running', 'percentage_stretch']].head())
-    
+      
     # Tag each stretch signal with "above" or "below"
     signals['stretch_label'] = np.where(
         signals['close'] > signals['vwap_running'], 'above', 'below'
@@ -251,17 +246,17 @@ def detect_stretch_signal(df_rth_filled, params):
         print(f"ℹ️ Time filtering: {signals_dropped} signals were outside the {entry_start}-{entry_end} trading window")
         print(f"ℹ️ Signals before time filter: {signals_before_time_filter}, after: {signals_after_time_filter}")
 
-#    if DEBUG_MODE:
-#        print("\n🧹 Post-filter signal integrity check:")
-#        print(f"  NaT timestamps: {signals['ts_raw'].isna().sum()}")
-#        print(f"  Time ordered: {signals['ts_raw'].is_monotonic_increasing}")
+    if DEBUG_MODE:
+        print("\n🧹 Post-filter signal integrity check:")
+        print(f"  NaT timestamps: {signals['ts_raw'].isna().sum()}")
+        print(f"  Time ordered: {signals['ts_raw'].is_monotonic_increasing}")
 
         # Log the first 5 stretch labels for "above" and "below"
-#    if DEBUG_MODE:
-#        print("\nFirst 5 'Above' Stretch Signals:")
-#        print(signals[signals['stretch_label'] == 'above'][['timestamp', 'close', 'vwap_running', 'percentage_stretch', 'stretch_label']].head())
-#        print("\nFirst 5 'Below' Stretch Signals:")
-#        print(signals[signals['stretch_label'] == 'below'][['timestamp', 'close', 'vwap_running', 'percentage_stretch', 'stretch_label']].head())
+    if DEBUG_MODE:
+        print("\nFirst 5 'Above' Stretch Signals:")
+        print(signals[signals['stretch_label'] == 'above'][['timestamp', 'close', 'vwap_running', 'percentage_stretch', 'stretch_label']].head())
+        print("\nFirst 5 'Below' Stretch Signals:")
+        print(signals[signals['stretch_label'] == 'below'][['timestamp', 'close', 'vwap_running', 'percentage_stretch', 'stretch_label']].head())
     
     # Implement cooldown logic
     last_above_signal_time = None
@@ -284,21 +279,21 @@ def detect_stretch_signal(df_rth_filled, params):
     processed_signals_df = pd.DataFrame(filtered_signals)
     
     # Additional diagnostic for cooldown filtering
-#    if DEBUG_MODE:
-#        signals_after_cooldown = len(processed_signals_df)
-#        signals_dropped_by_cooldown = len(signals) - signals_after_cooldown
-#        if signals_dropped_by_cooldown > 0:
-#            print(f"ℹ️ Cooldown filtering: {signals_dropped_by_cooldown} signals were dropped due to cooldown period")
-#            print(f"ℹ️ Signals before cooldown: {len(signals)}, after: {signals_after_cooldown}")
+    if DEBUG_MODE:
+        signals_after_cooldown = len(processed_signals_df)
+        signals_dropped_by_cooldown = len(signals) - signals_after_cooldown
+        if signals_dropped_by_cooldown > 0:
+            print(f"ℹ️ Cooldown filtering: {signals_dropped_by_cooldown} signals were dropped due to cooldown period")
+            print(f"ℹ️ Signals before cooldown: {len(signals)}, after: {signals_after_cooldown}")
 
-#    if DEBUG_MODE:
+    if DEBUG_MODE:
         # Log the first 5 processed 'above' stretch signals
-#        print("\nFirst 5 Processed 'Above' Stretch Signals:")
-#        print(processed_signals_df[processed_signals_df['stretch_label'] == 'above'][['ts_raw', 'close', 'vwap_running', 'percentage_stretch', 'stretch_label']].head())
+        print("\nFirst 5 Processed 'Above' Stretch Signals:")
+        print(processed_signals_df[processed_signals_df['stretch_label'] == 'above'][['ts_raw', 'close', 'vwap_running', 'percentage_stretch', 'stretch_label']].head())
         
         # Log the first 5 processed 'below' stretch signals
-#        print("\nFirst 5 Processed 'Below' Stretch Signals:")
-#        print(processed_signals_df[processed_signals_df['stretch_label'] == 'below'][['ts_raw', 'close', 'vwap_running', 'percentage_stretch', 'stretch_label']].head())
+        print("\nFirst 5 Processed 'Below' Stretch Signals:")
+        print(processed_signals_df[processed_signals_df['stretch_label'] == 'below'][['ts_raw', 'close', 'vwap_running', 'percentage_stretch', 'stretch_label']].head())
 
     return processed_signals_df
 
@@ -626,10 +621,10 @@ def select_option_contract(entry_signal, df_chain, spy_price, params):
         print(f"   Entry timestamp: {entry_signal['reclaim_ts']}, Expiration date: {contract_details['expiration_date']}")
     
     if DEBUG_MODE:
-#        print(f"DEBUG: Stretch direction: {entry_signal['stretch_label']}")
-#        print(f"DEBUG: Selected option type: {option_type}")
-#        print(f"DEBUG: SPY price: {spy_price}, Strike: {contract_details['strike_price']}")
-#        print(f"DEBUG: Is ATM: {contract_details['is_atm']}, Is ITM: {contract_details['is_itm']}")
+        print(f"DEBUG: Stretch direction: {entry_signal['stretch_label']}")
+        print(f"DEBUG: Selected option type: {option_type}")
+        print(f"DEBUG: SPY price: {spy_price}, Strike: {contract_details['strike_price']}")
+        print(f"DEBUG: Is ATM: {contract_details['is_atm']}, Is ITM: {contract_details['is_itm']}")
         print(f"   Selection mode: {option_selection_mode.upper()}, Actual mode used: {selection_mode_used}")
         print(f"   Strike depth: {strikes_depth} strikes from ATM")
     
