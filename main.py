@@ -605,154 +605,161 @@ for date_obj in business_days:
         # Initialize container for daily contracts
         daily_contracts = []
         
-        # Process the first valid entry (maximum 1 contract per day)
+        # MODIFIED: Process ALL valid entries instead of just the first one
         if not valid_entries.empty:
-            entry_signal = valid_entries.iloc[0]
-            entry_time = entry_signal['reclaim_ts']
-            entry_price = entry_signal['reclaim_price']
+            print(f"✅ Found {len(valid_entries)} valid entry signals for {date}")
             
-            # Get SPY price at entry
-            spy_price_at_entry = df_rth_filled[df_rth_filled['ts_raw'] == entry_time]['close'].iloc[0]
-            
-            # Select appropriate option contract
-            selected_contract = select_option_contract(entry_signal, df_chain, spy_price_at_entry, PARAMS)
-            
-            if selected_contract:
-                # Now we need to load the option price data for the selected contract
-                option_ticker = selected_contract['ticker']
+            # Process each valid entry signal
+            for idx, entry_signal in valid_entries.iterrows():
+                entry_time = entry_signal['reclaim_ts']
+                entry_price = entry_signal['reclaim_price']
                 
-                # === STEP 5d: Load or pull option price data ===
-                option_path = os.path.join(OPTION_DIR, f"{date}_{option_ticker.replace(':', '')}.pkl")
-                if os.path.exists(option_path):
-                    df_option_rth = pd.read_pickle(option_path)
-                    print("📂 Option price data loaded from cache.")
-                    if len(df_option_rth) < PARAMS['min_option_price_rows']:
-                        print(f"⚠️ Option price data for {option_ticker} on {date} is unusually short with only {len(df_option_rth)} rows. This may indicate incomplete data.")
-                else:
-                    option_url = (
-                        f"https://api.polygon.io/v2/aggs/ticker/{option_ticker}/range/1/second/"
-                        f"{date}/{date}?adjusted=true&sort=asc&limit=50000&apiKey={API_KEY}"
-                    )
-                    resp = requests.get(option_url)
-                    option_results = resp.json().get("results", [])
-                    df_option = pd.DataFrame(option_results)
-
-                    if df_option.empty:
-                        print(f"⚠️ No option price data for {option_ticker} on {date} — skipping.")
-                        continue
-
-                    df_option["timestamp"] = pd.to_datetime(df_option["t"], unit="ms", utc=True).dt.tz_convert("US/Eastern")
-                    df_option.rename(columns={
-                        "o": "open", "h": "high", "l": "low", "c": "close",
-                        "v": "volume", "vw": "vwap", "n": "trades"
-                    }, inplace=True)
-                    df_option = df_option[["timestamp", "open", "high", "low", "close", "volume", "vwap", "trades"]]
-
-                    df_option_rth = df_option[
-                        (df_option["timestamp"].dt.time >= time(9, 30)) &
-                        (df_option["timestamp"].dt.time <= time(16, 0))
-                    ].sort_values("timestamp").reset_index(drop=True)
+                # Get SPY price at entry
+                spy_price_at_entry = df_rth_filled[df_rth_filled['ts_raw'] == entry_time]['close'].iloc[0]
+                
+                # Select appropriate option contract
+                selected_contract = select_option_contract(entry_signal, df_chain, spy_price_at_entry, PARAMS)
+                
+                if selected_contract:
+                    # Now we need to load the option price data for the selected contract
+                    option_ticker = selected_contract['ticker']
                     
-                    # Mark rows with actual data (before forward filling)
-                    df_option_rth['is_actual_data'] = True
-
-                    if len(df_option_rth) < PARAMS['min_option_price_rows']:
-                        print(f"⚠️ Option price data for {option_ticker} on {date} is unusually short with only {len(df_option_rth)} rows after pulling from API. This may indicate incomplete data.")
-
-                    df_option_rth.to_pickle(option_path)
-                    print("💾 Option price data pulled and cached.")
-                
-                # === STEP 5e: Timestamp alignment check ===
-                # Add is_actual_data column if loading from cache and column doesn't exist
-                if 'is_actual_data' not in df_option_rth.columns:
-                    df_option_rth['is_actual_data'] = True
-                
-                # Create a copy of the actual data flags before alignment
-                actual_data_timestamps = df_option_rth[df_option_rth['is_actual_data']]['timestamp'].copy()
-                
-                # Align and forward fill the option data using the recommended pattern
-                df_option_aligned = df_option_rth.set_index("timestamp").reindex(df_rth_filled["ts_raw"])
-                df_option_aligned = df_option_aligned.ffill()
-                df_option_aligned = df_option_aligned.infer_objects(copy=False)
-                df_option_aligned = df_option_aligned.reset_index()
-                df_option_aligned.rename(columns={"index": "ts_raw"}, inplace=True)
-                
-                # Initialize staleness tracking
-                df_option_aligned['is_actual_data'] = df_option_aligned['ts_raw'].isin(actual_data_timestamps)
-                # Initialize as float64 type to properly handle inf values
-                df_option_aligned['seconds_since_update'] = pd.Series(0.0, index=df_option_aligned.index, dtype='float64')
-                
-                # Calculate staleness (seconds since last actual data point)
-                last_actual_ts = None
-                for idx, row in df_option_aligned.iterrows():
-                    if row['is_actual_data']:
-                        last_actual_ts = row['ts_raw']
-                        # No need to set 0.0 since already initialized
-                    elif last_actual_ts is not None:
-                        seconds_diff = (row['ts_raw'] - last_actual_ts).total_seconds()
-                        df_option_aligned.at[idx, 'seconds_since_update'] = seconds_diff
+                    # === STEP 5d: Load or pull option price data ===
+                    option_path = os.path.join(OPTION_DIR, f"{date}_{option_ticker.replace(':', '')}.pkl")
+                    if os.path.exists(option_path):
+                        df_option_rth = pd.read_pickle(option_path)
+                        print(f"📂 Option price data for {option_ticker} loaded from cache.")
+                        if len(df_option_rth) < PARAMS['min_option_price_rows']:
+                            print(f"⚠️ Option price data for {option_ticker} on {date} is unusually short with only {len(df_option_rth)} rows. This may indicate incomplete data.")
                     else:
-                        # Edge case: No actual data points before this timestamp
-                        df_option_aligned.at[idx, 'seconds_since_update'] = float('inf')  # Mark as infinitely stale
-                
-                # Define a threshold for allowable mismatches
-                mismatch_threshold = PARAMS['timestamp_mismatch_threshold']
-                
-                # Check for timestamp mismatches
-                mismatch_count = (~df_option_aligned["ts_raw"].eq(df_rth_filled["ts_raw"])).sum()
-                print(f"🧪 Timestamp mismatches: {mismatch_count}")
-                
-                # Hash-based timestamp verification as additional sanity check
-#                if DEBUG_MODE:
-#                    print(f"⏱️ SPY rows: {len(df_rth_filled)}")
-#                    print(f"⏱️ OPT rows: {len(df_option_aligned)}")
+                        option_url = (
+                            f"https://api.polygon.io/v2/aggs/ticker/{option_ticker}/range/1/second/"
+                            f"{date}/{date}?adjusted=true&sort=asc&limit=50000&apiKey={API_KEY}"
+                        )
+                        resp = requests.get(option_url)
+                        option_results = resp.json().get("results", [])
+                        df_option = pd.DataFrame(option_results)
 
-#                    def hash_timestamps(df):
-#                        return hashlib.md5("".join(df["ts_raw"].astype(str)).encode()).hexdigest()
+                        if df_option.empty:
+                            print(f"⚠️ No option price data for {option_ticker} on {date} — skipping this entry.")
+                            continue
 
-#                    spy_hash = hash_timestamps(df_rth_filled)
-#                    opt_hash = hash_timestamps(df_option_aligned)
-#                    hash_match = spy_hash == opt_hash
+                        df_option["timestamp"] = pd.to_datetime(df_option["t"], unit="ms", utc=True).dt.tz_convert("US/Eastern")
+                        df_option.rename(columns={
+                            "o": "open", "h": "high", "l": "low", "c": "close",
+                            "v": "volume", "vw": "vwap", "n": "trades"
+                        }, inplace=True)
+                        df_option = df_option[["timestamp", "open", "high", "low", "close", "volume", "vwap", "trades"]]
+
+                        df_option_rth = df_option[
+                            (df_option["timestamp"].dt.time >= time(9, 30)) &
+                            (df_option["timestamp"].dt.time <= time(16, 0))
+                        ].sort_values("timestamp").reset_index(drop=True)
+                        
+                        # Mark rows with actual data (before forward filling)
+                        df_option_rth['is_actual_data'] = True
+
+                        if len(df_option_rth) < PARAMS['min_option_price_rows']:
+                            print(f"⚠️ Option price data for {option_ticker} on {date} is unusually short with only {len(df_option_rth)} rows after pulling from API. This may indicate incomplete data.")
+
+                        df_option_rth.to_pickle(option_path)
+                        print(f"💾 Option price data for {option_ticker} pulled and cached.")
                     
-#                    print(f"🔐 SPY hash:  {spy_hash}")
-#                    print(f"🔐 OPT hash:  {opt_hash}")
-#                    print(f"🔍 Hash match: {hash_match}")
-                
-                # Check if mismatches exceed the threshold
-                if mismatch_count > mismatch_threshold:
-                    print(f"⚠️ Timestamp mismatch in {mismatch_count} rows exceeds threshold of {mismatch_threshold} — skipping.")
-                    continue
-                
-                # Lookup option price at entry time
-                option_row = df_option_aligned[df_option_aligned['ts_raw'] == entry_time]
-                
-                if option_row.empty:
-                    print(f"⚠️ Could not find option price for entry at {entry_time} - skipping")
-                    continue
-                
-                # Extract entry price for the option
-                option_entry_price = option_row['vwap'].iloc[0]
-                
-                # Check price staleness at entry
-                staleness_threshold = PARAMS['price_staleness_threshold_seconds']
-                price_staleness = option_row['seconds_since_update'].iloc[0]
-                is_price_stale = price_staleness > staleness_threshold
-                
-                if is_price_stale and PARAMS['report_stale_prices']:
-                    print(f"⚠️ Using stale option price at entry - {price_staleness:.1f} seconds old")
-                
-                # Store contract with complete entry details
-                contract_with_entry = {
-                    **selected_contract,
-                    'entry_time': entry_time,
-                    'entry_spy_price': spy_price_at_entry,
-                    'entry_option_price': option_entry_price,
-                    'price_staleness_seconds': price_staleness,
-                    'is_price_stale': is_price_stale,
-                    'df_option_aligned': df_option_aligned,  # Save aligned option data for later use
-                    'entry_signal': entry_signal.to_dict()
-                }
-                daily_contracts.append(contract_with_entry)
+                    # === STEP 5e: Timestamp alignment check ===
+                    # Add is_actual_data column if loading from cache and column doesn't exist
+                    if 'is_actual_data' not in df_option_rth.columns:
+                        df_option_rth['is_actual_data'] = True
+                    
+                    # Create a copy of the actual data flags before alignment
+                    actual_data_timestamps = df_option_rth[df_option_rth['is_actual_data']]['timestamp'].copy()
+                    
+                    # Align and forward fill the option data using the recommended pattern
+                    df_option_aligned = df_option_rth.set_index("timestamp").reindex(df_rth_filled["ts_raw"])
+                    df_option_aligned = df_option_aligned.ffill()
+                    df_option_aligned = df_option_aligned.infer_objects(copy=False)
+                    df_option_aligned = df_option_aligned.reset_index()
+                    df_option_aligned.rename(columns={"index": "ts_raw"}, inplace=True)
+                    
+                    # Initialize staleness tracking
+                    df_option_aligned['is_actual_data'] = df_option_aligned['ts_raw'].isin(actual_data_timestamps)
+                    # Initialize as float64 type to properly handle inf values
+                    df_option_aligned['seconds_since_update'] = pd.Series(0.0, index=df_option_aligned.index, dtype='float64')
+                    
+                    # Calculate staleness (seconds since last actual data point)
+                    last_actual_ts = None
+                    for idx_opt, row_opt in df_option_aligned.iterrows():
+                        if row_opt['is_actual_data']:
+                            last_actual_ts = row_opt['ts_raw']
+                            # No need to set 0.0 since already initialized
+                        elif last_actual_ts is not None:
+                            seconds_diff = (row_opt['ts_raw'] - last_actual_ts).total_seconds()
+                            df_option_aligned.at[idx_opt, 'seconds_since_update'] = seconds_diff
+                        else:
+                            # Edge case: No actual data points before this timestamp
+                            df_option_aligned.at[idx_opt, 'seconds_since_update'] = float('inf')  # Mark as infinitely stale
+                    
+                    # Define a threshold for allowable mismatches
+                    mismatch_threshold = PARAMS['timestamp_mismatch_threshold']
+                    
+                    # Check for timestamp mismatches
+                    mismatch_count = (~df_option_aligned["ts_raw"].eq(df_rth_filled["ts_raw"])).sum()
+                    print(f"🧪 Signal #{idx+1}: Timestamp mismatches for {option_ticker}: {mismatch_count}")
+                    
+                    # Hash-based timestamp verification as additional sanity check
+                    if DEBUG_MODE:
+                        print(f"⏱️ SPY rows: {len(df_rth_filled)}")
+                        print(f"⏱️ OPT rows: {len(df_option_aligned)}")
+
+                        def hash_timestamps(df):
+                            return hashlib.md5("".join(df["ts_raw"].astype(str)).encode()).hexdigest()
+
+                        spy_hash = hash_timestamps(df_rth_filled)
+                        opt_hash = hash_timestamps(df_option_aligned)
+                        hash_match = spy_hash == opt_hash
+                        
+                        print(f"🔐 SPY hash:  {spy_hash}")
+                        print(f"🔐 OPT hash:  {opt_hash}")
+                        print(f"🔍 Hash match: {hash_match}")
+                    
+                    # Check if mismatches exceed the threshold
+                    if mismatch_count > mismatch_threshold:
+                        print(f"⚠️ Timestamp mismatch in {mismatch_count} rows exceeds threshold of {mismatch_threshold} — skipping this entry.")
+                        continue
+                    
+                    # Lookup option price at entry time
+                    option_row = df_option_aligned[df_option_aligned['ts_raw'] == entry_time]
+                    
+                    if option_row.empty:
+                        print(f"⚠️ Could not find option price for entry at {entry_time} - skipping this entry")
+                        continue
+                    
+                    # Extract entry price for the option
+                    option_entry_price = option_row['vwap'].iloc[0]
+                    
+                    # Check price staleness at entry
+                    staleness_threshold = PARAMS['price_staleness_threshold_seconds']
+                    price_staleness = option_row['seconds_since_update'].iloc[0]
+                    is_price_stale = price_staleness > staleness_threshold
+                    
+                    if is_price_stale and PARAMS['report_stale_prices']:
+                        print(f"⚠️ Signal #{idx+1}: Using stale option price at entry - {price_staleness:.1f} seconds old")
+                    
+                    # Store contract with complete entry details
+                    contract_with_entry = {
+                        **selected_contract,
+                        'entry_time': entry_time,
+                        'entry_spy_price': spy_price_at_entry,
+                        'entry_option_price': option_entry_price,
+                        'price_staleness_seconds': price_staleness,
+                        'is_price_stale': is_price_stale,
+                        'signal_number': idx + 1,  # Add signal sequence number for reference
+                        'df_option_aligned': df_option_aligned,  # Save aligned option data for later use
+                        'entry_signal': entry_signal.to_dict()
+                    }
+                    daily_contracts.append(contract_with_entry)
+                    
+                    # Memory optimization: Clear the large DataFrame after use
+                    del df_option_aligned
         
         # Count the number of entry intent signals for the day
         daily_entry_intent_signals = stretch_signals['entry_intent'].sum()
@@ -761,12 +768,17 @@ for date_obj in business_days:
 
         if DEBUG_MODE:
             print(f"🎯 Entry intent signals (valid reclaims): {daily_entry_intent_signals}")
-            print(f"💰 Selected contracts: {len(daily_contracts)}")
+            # UPDATED: Report successful entries vs attempted entries
+            successful_entries = len(daily_contracts)
+            print(f"💰 Successful contract entries: {successful_entries}/{daily_entry_intent_signals} ({(successful_entries/daily_entry_intent_signals*100):.1f}% success rate)" if daily_entry_intent_signals > 0 else "💰 No valid entry signals to process")
             
+            # UPDATED: Show contract details for all entries instead of just the first one
             if daily_contracts:
-                contract = daily_contracts[0]
-                print(f"   Selected {contract['option_type'].upper()} option: {contract['ticker']}")
-                print(f"   Strike: {contract['strike_price']}, Entry price: ${contract['entry_option_price']:.2f}")
+                print("\n   Contract details for each entry:")
+                for i, contract in enumerate(daily_contracts):
+                    print(f"   [{i+1}] {contract['option_type'].upper()} option: {contract['ticker']}")
+                    print(f"       Strike: {contract['strike_price']}, Entry price: ${contract['entry_option_price']:.2f}")
+                    print(f"       Entry time: {contract['entry_time'].strftime('%H:%M:%S')}")
             
             # Log the daily breakdown of stretch signals
             above_count = len(stretch_signals[stretch_signals['stretch_label'] == 'above'])
@@ -774,16 +786,19 @@ for date_obj in business_days:
             total_count = len(stretch_signals)
             print(f"🔍 Detected {total_count} stretch signals on {date} (Above: {above_count}, Below: {below_count}).")
 
+        # Add daily contracts to the master list
         if daily_contracts:
-            contract = daily_contracts[0]
-            
-            # Remove the full DataFrame before adding to the master list to save memory
-            # (we'll only keep the essential trade data for analysis)
-            if 'df_option_aligned' in contract:
-                del contract['df_option_aligned']
+            # For each contract in the daily list, clean up memory and add to master list
+            for contract in daily_contracts:
+                # Make a clean copy without the large DataFrame to save memory
+                clean_contract = contract.copy()
                 
-            # Add to our master list of all contracts
-            all_contracts.append(contract)
+                # Remove the full DataFrame before adding to the master list to save memory
+                if 'df_option_aligned' in clean_contract:
+                    del clean_contract['df_option_aligned']
+                    
+                # Add to our master list of all contracts
+                all_contracts.append(clean_contract)
 
     except Exception as e:
         print(f"❌ {date} — Error: {str(e)}")
@@ -793,6 +808,13 @@ for date_obj in business_days:
 if days_processed > 0:
     average_entry_intent_signals = total_entry_intent_signals / days_processed
     print(f"📊 Average daily entry intent signals over the period: {average_entry_intent_signals:.2f}")
+    
+    # Calculate average successful entries per day
+    if all_contracts:
+        average_entries_per_day = len(all_contracts) / days_processed
+        success_rate = len(all_contracts) / total_entry_intent_signals * 100 if total_entry_intent_signals > 0 else 0
+        print(f"📊 Average successful trades per day: {average_entries_per_day:.2f}")
+        print(f"📊 Overall success rate: {success_rate:.1f}% ({len(all_contracts)}/{total_entry_intent_signals} signals)")
 else:
     print("⚠️ No days processed, cannot calculate average entry intent signals.")
 
@@ -807,21 +829,27 @@ if all_contracts:
     call_count = len(contracts_df[contracts_df['option_type'] == 'call'])
     put_count = len(contracts_df[contracts_df['option_type'] == 'put'])
     
-    print(f"  Call options: {call_count}")
-    print(f"  Put options: {put_count}")
+    print(f"  Call options: {call_count} ({call_count/len(contracts_df)*100:.1f}%)")
+    print(f"  Put options: {put_count} ({put_count/len(contracts_df)*100:.1f}%)")
     
     # Count by positioning
     atm_count = len(contracts_df[contracts_df['is_atm'] == True])
     itm_count = len(contracts_df[contracts_df['is_itm'] == True])
     otm_count = len(contracts_df[(contracts_df['is_atm'] == False) & (contracts_df['is_itm'] == False)])
     
-    print(f"  ATM contracts: {atm_count}")
-    print(f"  ITM contracts: {itm_count}")
-    print(f"  OTM contracts: {otm_count}")
+    print(f"  ATM contracts: {atm_count} ({atm_count/len(contracts_df)*100:.1f}%)")
+    print(f"  ITM contracts: {itm_count} ({itm_count/len(contracts_df)*100:.1f}%)")
+    print(f"  OTM contracts: {otm_count} ({otm_count/len(contracts_df)*100:.1f}%)")
+    
+    # Get trading day distribution
+    print("\n📆 Trades by Day:")
+    date_counts = contracts_df['entry_time'].dt.date.value_counts().sort_index()
+    for date, count in date_counts.items():
+        print(f"  {date}: {count} trade(s)")
     
     # Average strike distance from price
     avg_diff = contracts_df['abs_diff'].mean()
-    print(f"  Average distance from ATM: {avg_diff:.4f}")
+    print(f"\n  Average distance from ATM: {avg_diff:.4f}")
     
     # Add price staleness statistics if enabled
     if PARAMS['report_stale_prices'] and 'is_price_stale' in contracts_df.columns:
@@ -840,6 +868,6 @@ if all_contracts:
     print("\n🔍 Sample of selected option contracts:")
     if PARAMS['report_stale_prices'] and 'is_price_stale' in contracts_df.columns:
         print(contracts_df[['entry_time', 'option_type', 'strike_price', 'entry_spy_price', 
-                          'entry_option_price', 'price_staleness_seconds', 'is_price_stale']].head())
+                          'entry_option_price', 'price_staleness_seconds', 'is_price_stale']].head(10))
     else:
-        print(contracts_df[['entry_time', 'option_type', 'strike_price', 'entry_spy_price', 'entry_option_price']].head())
+        print(contracts_df[['entry_time', 'option_type', 'strike_price', 'entry_spy_price', 'entry_option_price']].head(10))
