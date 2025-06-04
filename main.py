@@ -16,8 +16,8 @@ import numpy as np
 # === DEBUG FLAG ===
 DEBUG_MODE = True  # Set to False to skip alignment diagnostics
 
-start_date = "2023-01-23"
-end_date = "2023-01-27"
+start_date = "2023-04-05"
+end_date = "2023-05-27"
 business_days = pd.date_range(start=start_date, end=end_date, freq="B")
 ticker = "SPY"
 
@@ -352,8 +352,19 @@ for date_obj in business_days:
 
         # === Insert strategy logic here ===
         stretch_signals = detect_stretch_signal(df_rth_filled, PARAMS)
+
+        # Log if no stretch signals are detected
+        if stretch_signals.empty:
+            print(f"⚠️ No stretch signals detected for {date} — skipping.")
+            continue
+
         stretch_signals = detect_partial_reclaims(df_rth_filled, stretch_signals, PARAMS)
         
+        # Ensure 'entry_intent' column exists
+        if 'entry_intent' not in stretch_signals.columns:
+            print(f"⚠️ 'entry_intent' column missing for {date} — skipping.")
+            continue
+
         # Count the number of entry intent signals for the day
         daily_entry_intent_signals = stretch_signals['entry_intent'].sum()
         total_entry_intent_signals += daily_entry_intent_signals
