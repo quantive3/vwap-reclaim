@@ -16,8 +16,8 @@ import numpy as np
 # === DEBUG FLAG ===
 DEBUG_MODE = True  # Set to False to skip alignment diagnostics
 
-start_date = "2023-04-05"
-end_date = "2023-05-27"
+start_date = "2023-01-23"
+end_date = "2023-01-27"
 business_days = pd.date_range(start=start_date, end=end_date, freq="B")
 ticker = "SPY"
 
@@ -187,6 +187,8 @@ for date_obj in business_days:
         if os.path.exists(spy_path):
             df_rth_filled = pd.read_pickle(spy_path)
             print("📂 SPY data loaded from cache.")
+            if len(df_rth_filled) < 1000:
+                print(f"⚠️ SPY data for {date} is unusually short with only {len(df_rth_filled)} rows. This may indicate incomplete data.")
         else:
             base_url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/second/{date}/{date}"
             headers = {"Authorization": f"Bearer {API_KEY}"}
@@ -246,7 +248,8 @@ for date_obj in business_days:
             if not df_rth_filled["vwap_running"].apply(lambda x: pd.notna(x) and np.isfinite(x)).all():
                 raise ValueError("❌ Non-finite values (inf/-inf) in vwap_running")
 
-
+            if len(df_rth_filled) < 1000:
+                print(f"⚠️ SPY data for {date} is unusually short with only {len(df_rth_filled)} rows after pulling from API. This may indicate incomplete data.")
 
             df_rth_filled.to_pickle(spy_path)
             print("💾 SPY data pulled and cached.")
@@ -256,6 +259,8 @@ for date_obj in business_days:
         if os.path.exists(chain_path):
             df_chain = pd.read_pickle(chain_path)
             print("📂 Option chain loaded from cache.")
+            if len(df_chain) < 10:
+                print(f"⚠️ Option chain data for {date} is unusually short with only {len(df_chain)} rows. This may indicate incomplete data.")
         else:
             def fetch_chain(contract_type):
                 url = (
@@ -299,6 +304,8 @@ for date_obj in business_days:
         if os.path.exists(option_path):
             df_option_rth = pd.read_pickle(option_path)
             print("📂 Option price data loaded from cache.")
+            if len(df_option_rth) < 100:
+                print(f"⚠️ Option price data for {option_ticker} on {date} is unusually short with only {len(df_option_rth)} rows. This may indicate incomplete data.")
         else:
             option_url = (
                 f"https://api.polygon.io/v2/aggs/ticker/{option_ticker}/range/1/second/"
@@ -323,6 +330,9 @@ for date_obj in business_days:
                 (df_option["timestamp"].dt.time >= time(9, 30)) &
                 (df_option["timestamp"].dt.time <= time(16, 0))
             ].sort_values("timestamp").reset_index(drop=True)
+
+            if len(df_option_rth) < 100:
+                print(f"⚠️ Option price data for {option_ticker} on {date} is unusually short with only {len(df_option_rth)} rows after pulling from API. This may indicate incomplete data.")
 
             df_option_rth.to_pickle(option_path)
             print("💾 Option price data pulled and cached.")
