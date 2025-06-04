@@ -33,6 +33,7 @@ PARAMS = {
     # Instrument selection
     'ticker': 'SPY',
     'option_type': 'call',  # 'call' or 'put'
+    'require_same_day_expiry': True,  # Whether to strictly require same-day expiry options
     
     # Data quality thresholds - for error checking
     'min_spy_data_rows': 10000,  # Minimum acceptable rows for SPY data
@@ -252,13 +253,34 @@ def select_option_contract(entry_signal, df_chain, spy_price, params):
     # Above VWAP stretch → buy put option
     option_type = 'call' if stretch_direction == 'below' else 'put'
     
-    # Filter chain to only include the desired option type
-    filtered_chain = df_chain[df_chain['option_type'] == option_type].copy()
+    # Get current date for filtering same-day expiry options
+    current_date = entry_signal['ts_raw'].strftime('%Y-%m-%d')
+    
+    # Filter chain to only include the desired option type AND same-day expiry
+    filtered_chain = df_chain[
+        (df_chain['option_type'] == option_type) & 
+        (df_chain['expiration_date'] == current_date)
+    ].copy()
     
     if filtered_chain.empty:
         if params['debug_mode']:
-            print(f"⚠️ No {option_type} options available in the chain")
-        return None
+            print(f"⚠️ No same-day expiry {option_type} options available in the chain")
+            
+        # If no same-day expiry options, check if we allow non-same-day expiry as fallback
+        if not params.get('require_same_day_expiry', True):
+            filtered_chain = df_chain[df_chain['option_type'] == option_type].copy()
+            
+            if filtered_chain.empty:
+                if params['debug_mode']:
+                    print(f"⚠️ No {option_type} options available in the chain at all")
+                return None
+            else:
+                if params['debug_mode']:
+                    print(f"ℹ️ Using non-same-day expiry options as fallback")
+        else:
+            if params['debug_mode']:
+                print(f"⚠️ Same-day expiry required but none available - skipping")
+            return None
     
     # Calculate absolute difference between each strike and current price for ATM selection
     filtered_chain['abs_diff'] = (filtered_chain['strike_price'] - spy_price).abs()
@@ -300,14 +322,16 @@ def select_option_contract(entry_signal, df_chain, spy_price, params):
         'abs_diff': selected_contract['abs_diff'],
         'is_atm': selected_contract['strike_price'] == spy_price,
         'is_itm': (option_type == 'call' and selected_contract['strike_price'] < spy_price) or
-                  (option_type == 'put' and selected_contract['strike_price'] > spy_price)
+                  (option_type == 'put' and selected_contract['strike_price'] > spy_price),
+        'is_same_day_expiry': selected_contract.get('expiration_date', '') == current_date
     }
     
     if params['debug_mode']:
         itm_status = "ITM" if contract_details['is_itm'] else ("ATM" if contract_details['is_atm'] else "OTM")
-        print(f"✅ Selected {option_type.upper()} option: {contract_details['ticker']} with strike {contract_details['strike_price']} ({itm_status})")
+        expiry_status = "Same-day expiry" if contract_details['is_same_day_expiry'] else "Future expiry"
+        print(f"✅ Selected {option_type.upper()} option: {contract_details['ticker']} with strike {contract_details['strike_price']} ({itm_status}, {expiry_status})")
         print(f"   Underlying price: {spy_price}, Strike diff: {contract_details['abs_diff']:.4f}")
-        print(f"   Entry timestamp: {entry_signal['reclaim_ts']}")
+        print(f"   Entry timestamp: {entry_signal['reclaim_ts']}, Expiration date: {contract_details['expiration_date']}")
     
 #    if DEBUG_MODE:
 #        print(f"DEBUG: Stretch direction: {entry_signal['stretch_label']}")
@@ -421,7 +445,8 @@ for date_obj in business_days:
                     f"https://api.polygon.io/v3/reference/options/contracts"
                     f"?underlying_ticker={ticker}"
                     f"&contract_type={contract_type}"
-                    f"&expiration_date={date}"
+                    f"&expiration_date.gte={date}"  # Greater than or equal to current date
+                    f"&expiration_date.lte={date}"  # Less than or equal to current date (same day)
                     f"&as_of={date}"
                     f"&order=asc"
                     f"&limit=1000"
@@ -570,20 +595,20 @@ for date_obj in business_days:
                 print(f"🧪 Timestamp mismatches: {mismatch_count}")
                 
                 # Hash-based timestamp verification as additional sanity check
-                if DEBUG_MODE:
-                    print(f"⏱️ SPY rows: {len(df_rth_filled)}")
-                    print(f"⏱️ OPT rows: {len(df_option_aligned)}")
+#                if DEBUG_MODE:
+#                    print(f"⏱️ SPY rows: {len(df_rth_filled)}")
+#                    print(f"⏱️ OPT rows: {len(df_option_aligned)}")
 
-                    def hash_timestamps(df):
-                        return hashlib.md5("".join(df["ts_raw"].astype(str)).encode()).hexdigest()
+#                    def hash_timestamps(df):
+#                        return hashlib.md5("".join(df["ts_raw"].astype(str)).encode()).hexdigest()
 
-                    spy_hash = hash_timestamps(df_rth_filled)
-                    opt_hash = hash_timestamps(df_option_aligned)
-                    hash_match = spy_hash == opt_hash
+#                    spy_hash = hash_timestamps(df_rth_filled)
+#                    opt_hash = hash_timestamps(df_option_aligned)
+#                    hash_match = spy_hash == opt_hash
                     
-                    print(f"🔐 SPY hash:  {spy_hash}")
-                    print(f"🔐 OPT hash:  {opt_hash}")
-                    print(f"🔍 Hash match: {hash_match}")
+#                    print(f"🔐 SPY hash:  {spy_hash}")
+#                    print(f"🔐 OPT hash:  {opt_hash}")
+#                    print(f"🔍 Hash match: {hash_match}")
                 
                 # Check if mismatches exceed the threshold
                 if mismatch_count > mismatch_threshold:
