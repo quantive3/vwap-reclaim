@@ -1271,6 +1271,15 @@ for date_obj in business_days:
                     # Store original signal time before applying latency
                     original_signal_time = entry_time
                     
+                    # Capture the original price at original timestamp before applying latency
+                    original_option_row = df_option_aligned[df_option_aligned['ts_raw'] == original_signal_time]
+                    original_price = None
+                    if not original_option_row.empty:
+                        if pd.notna(original_option_row['vwap'].iloc[0]):
+                            original_price = original_option_row['vwap'].iloc[0]
+                        elif pd.notna(original_option_row['close'].iloc[0]):
+                            original_price = original_option_row['close'].iloc[0]
+
                     # Apply latency to entry if configured
                     latency_seconds = PARAMS.get('latency_seconds', 0)
                     if latency_seconds > 0:
@@ -1294,7 +1303,11 @@ for date_obj in business_days:
                                 print(f"🕒 Entry latency applied: {latency_seconds}s")
                                 print(f"   Original signal: {original_signal_time.strftime('%H:%M:%S')}")
                                 print(f"   Execution time: {entry_time.strftime('%H:%M:%S')}")
-                                print(f"   Price difference: ${latency_result['delayed_price'] - option_row['vwap'].iloc[0]:.4f}")
+                                if original_price is not None:
+                                    # Now correctly comparing delayed price with original price
+                                    print(f"   Price difference: ${latency_result['delayed_price'] - original_price:.4f}")
+                                else:
+                                    print(f"   Price difference: Unable to calculate - original price data not found")
                         else:
                             # If we can't find data at the delayed timestamp, skip this entry
                             latency_error_msg = f"No option price data after applying entry latency of {latency_seconds}s from {original_signal_time}"
