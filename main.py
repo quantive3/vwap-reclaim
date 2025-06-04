@@ -569,6 +569,22 @@ for date_obj in business_days:
                 mismatch_count = (~df_option_aligned["ts_raw"].eq(df_rth_filled["ts_raw"])).sum()
                 print(f"🧪 Timestamp mismatches: {mismatch_count}")
                 
+                # Hash-based timestamp verification as additional sanity check
+                if DEBUG_MODE:
+                    print(f"⏱️ SPY rows: {len(df_rth_filled)}")
+                    print(f"⏱️ OPT rows: {len(df_option_aligned)}")
+
+                    def hash_timestamps(df):
+                        return hashlib.md5("".join(df["ts_raw"].astype(str)).encode()).hexdigest()
+
+                    spy_hash = hash_timestamps(df_rth_filled)
+                    opt_hash = hash_timestamps(df_option_aligned)
+                    hash_match = spy_hash == opt_hash
+                    
+                    print(f"🔐 SPY hash:  {spy_hash}")
+                    print(f"🔐 OPT hash:  {opt_hash}")
+                    print(f"🔍 Hash match: {hash_match}")
+                
                 # Check if mismatches exceed the threshold
                 if mismatch_count > mismatch_threshold:
                     print(f"⚠️ Timestamp mismatch in {mismatch_count} rows exceeds threshold of {mismatch_threshold} — skipping.")
