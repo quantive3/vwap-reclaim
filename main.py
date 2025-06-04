@@ -546,7 +546,7 @@ for date_obj in business_days:
                     continue
                 
                 # Extract entry price for the option
-                option_entry_price = option_row['close'].iloc[0]
+                option_entry_price = option_row['vwap'].iloc[0]
                 
                 # Store contract with complete entry details
                 contract_with_entry = {
