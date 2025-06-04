@@ -35,6 +35,7 @@ PARAMS = {
     'stop_loss_percent': -50,      # Stop loss at 50% loss
     'max_trade_duration_seconds': 300,  # Exit after 300 seconds (5 minutes)
     'end_of_day_exit_time': time(15, 55),  # 3:55 PM exit cutoff
+    'emergency_exit_time': time(15, 58),   # 3:58 PM absolute failsafe exit (overrides all other logic)
     
     # Latency simulation
     'latency_seconds': 3,    # Seconds delay between signal and execution (0 = disabled)
@@ -90,6 +91,7 @@ issue_tracker = {
         "shares_per_contract_missing": 0,  # Warning when default shares_per_contract is used
         "non_standard_contract_size": 0,   # Warning when shares_per_contract is not 100
         "vwap_fallback_to_close": 0,       # Added for tracking fallbacks from VWAP to close price
+        "emergency_exit_triggered": 0,     # Added for tracking emergency exit activations
         "other": 0,
         "details": []  # Store details for uncommon warnings
     },
@@ -111,6 +113,10 @@ issue_tracker = {
         "valid_entry_opportunities": 0,
         "failed_entries_data_issues": 0,
         "total_options_contracts": 0
+    },
+    "risk_management": {
+        "emergency_exits": 0,      # Total number of emergency exits triggered
+        "emergency_exit_dates": set()  # Dates when emergency exits were triggered
     }
 }
 
@@ -669,6 +675,103 @@ def evaluate_exit_conditions(contract, current_time, current_price, params):
         
     return False, None
 
+# === STEP 7e: Emergency Failsafe Exit System ===
+def check_emergency_exit_time(current_time, params):
+    """
+    Check if the current time has reached the emergency failsafe exit time.
+    This function provides the ultimate protection against overnight positions.
+    
+    Parameters:
+    - current_time: Current timestamp to evaluate
+    - params: Strategy parameters
+    
+    Returns:
+    - Boolean indicating if emergency exit should be triggered
+    """
+    # Get the emergency failsafe exit time (default 3:58 PM - even later than regular EOD exit)
+    # This should be later than your end_of_day_exit_time but before market close
+    emergency_exit_time = params.get('emergency_exit_time', time(15, 58))
+    
+    # Extract time component if current_time is a datetime
+    if hasattr(current_time, 'time'):
+        current_time = current_time.time()
+    
+    # Return True if emergency exit should be triggered
+    return current_time >= emergency_exit_time
+
+def process_emergency_exit(contract, current_time, df_option, params):
+    """
+    Process an emergency failsafe exit for a contract.
+    This will force close a position regardless of other exit conditions.
+    
+    Parameters:
+    - contract: The contract data dictionary
+    - current_time: Current timestamp
+    - df_option: DataFrame with option price data
+    - params: Strategy parameters
+    
+    Returns:
+    - Updated contract with emergency exit details
+    """
+    # Find the current price data
+    current_rows = df_option[df_option['ts_raw'] == current_time]
+    
+    if current_rows.empty:
+        # If we can't find the exact timestamp, use the last available price
+        # This ensures we still exit even if there's a data issue
+        exit_row = df_option.iloc[-1]
+        exit_time = exit_row['ts_raw']
+        print(f"⚠️ EMERGENCY EXIT: Using last available price for {contract['ticker']} at {exit_time}")
+    else:
+        exit_row = current_rows.iloc[0]
+        exit_time = current_time
+    
+    # Get the exit price (VWAP preferred, fall back to close)
+    if 'vwap' in exit_row and pd.notna(exit_row['vwap']):
+        exit_price = exit_row['vwap']
+    else:
+        exit_price = exit_row['close']
+        # Log the fallback
+        fallback_msg = f"EMERGENCY EXIT: Falling back to close price for {contract['ticker']} at {exit_time}"
+        print(f"⚠️ {fallback_msg}")
+        entry_date = contract['entry_time'].strftime("%Y-%m-%d")
+        track_issue("warnings", "vwap_fallback_to_close", fallback_msg, date=entry_date)
+    
+    # Calculate P&L
+    entry_price = contract['entry_option_price']
+    pnl_percent = (exit_price - entry_price) / entry_price * 100
+    
+    # Calculate duration
+    entry_time = contract['entry_time']
+    trade_duration = (exit_time - entry_time).total_seconds()
+    
+    # Update contract with exit details
+    contract['exit_time'] = exit_time
+    contract['exit_price'] = exit_price
+    contract['exit_reason'] = "emergency_exit"
+    contract['pnl_percent'] = pnl_percent
+    contract['trade_duration_seconds'] = trade_duration
+    contract['is_closed'] = True
+    
+    # Add emergency exit flag for tracking
+    contract['emergency_exit_triggered'] = True
+    
+    # Log the emergency exit
+    print(f"🚨 EMERGENCY EXIT TRIGGERED for {contract['ticker']} at {exit_time.strftime('%H:%M:%S')}")
+    print(f"   P&L: {pnl_percent:.2f}%, Duration: {trade_duration:.0f}s")
+    
+    # Track this issue in warnings
+    entry_date = entry_time.strftime("%Y-%m-%d")
+    track_issue("warnings", "emergency_exit_triggered", 
+               f"Emergency exit for {contract['ticker']} entered at {entry_time}", 
+               level="warning", date=entry_date)
+    
+    # Also track in risk_management stats
+    issue_tracker["risk_management"]["emergency_exits"] += 1
+    issue_tracker["risk_management"]["emergency_exit_dates"].add(entry_date)
+    
+    return contract
+
 def process_exits_for_contract(contract, params):
     """
     Process exit conditions for a single contract.
@@ -748,6 +851,10 @@ def process_exits_for_contract(contract, params):
             track_issue("warnings", "vwap_fallback_to_close", fallback_msg, date=entry_date)
         
         try:
+            # FAILSAFE: Check for emergency exit time first, overriding all other conditions
+            if check_emergency_exit_time(current_time, params):
+                return process_emergency_exit(contract, current_time, future_prices, params)
+            
             # Check for price staleness at this potential exit point
             staleness_threshold = params['price_staleness_threshold_seconds']
             price_staleness = row['seconds_since_update'] if 'seconds_since_update' in row else 0.0
@@ -1782,6 +1889,7 @@ print(f"  - Timestamp mismatches below threshold: {issue_tracker['warnings']['ti
 print(f"  - Missing shares_per_contract: {issue_tracker['warnings']['shares_per_contract_missing']}")
 print(f"  - Non-standard contract size: {issue_tracker['warnings']['non_standard_contract_size']}")
 print(f"  - VWAP fallbacks to close price: {issue_tracker['warnings']['vwap_fallback_to_close']}")
+print(f"  - Emergency exit activations: {issue_tracker['warnings']['emergency_exit_triggered']}")
 print(f"  - Other warnings: {issue_tracker['warnings']['other']}")
 
 # Show details of 'other' warnings if any exist
@@ -1819,5 +1927,15 @@ print(f"  - Total stretch signals: {issue_tracker['opportunities']['total_stretc
 print(f"  - Valid entry opportunities: {issue_tracker['opportunities']['valid_entry_opportunities']}")
 print(f"  - Failed entries due to data issues: {issue_tracker['opportunities']['failed_entries_data_issues']}")
 print(f"  - Total options contracts selected: {issue_tracker['opportunities']['total_options_contracts']}")
+
+# Risk Management Statistics
+print("\n🛡️ RISK MANAGEMENT STATISTICS:")
+print(f"  - Emergency exits triggered: {issue_tracker['risk_management']['emergency_exits']}")
+if issue_tracker['risk_management']['emergency_exits'] > 0:
+    emergency_dates = sorted(issue_tracker['risk_management']['emergency_exit_dates'])
+    dates_str = ", ".join(emergency_dates)
+    print(f"  - Dates with emergency exits: {dates_str}")
+print(f"  - Regular end-of-day exits: {sum(1 for c in all_contracts if c.get('exit_reason') == 'end_of_day')}")
+print(f"  - Total trades with defined exit reason: {sum(1 for c in all_contracts if c.get('exit_reason') is not None)}")
 
 print("\n" + "=" * 20 + " END OF REPORT " + "=" * 20)
