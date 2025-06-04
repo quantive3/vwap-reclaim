@@ -48,6 +48,85 @@ PARAMS = {
     'debug_mode': True,  # Enable/disable debug outputs
 }
 
+# === STEP 6b: Initialize Issue Tracker ===
+# Initialize issue tracker for summary reporting
+issue_tracker = {
+    "days": {
+        "attempted": 0,
+        "processed": 0,
+        "skipped_errors": 0,
+        "skipped_warnings": 0,
+        "dates_with_issues": set()  # Track specific dates with issues
+    },
+    "data_integrity": {
+        "hash_mismatches": 0,
+        "timestamp_mismatches": 0,
+        "days_with_mismatches": set()  # Track days with timestamp mismatches
+    },
+    "warnings": {
+        f"no_{PARAMS['ticker']}_data": 0,  # Dynamically use the ticker name
+        "price_staleness": 0,
+        "short_data_warnings": 0,
+        "timestamp_mismatches_below_threshold": 0,
+        "other": 0,
+        "details": []  # Store details for uncommon warnings
+    },
+    "errors": {
+        "missing_option_price_data": 0,
+        "api_connection_failures": 0,
+        "other": 0,
+        "details": []  # Store details for uncommon errors
+    },
+    "opportunities": {
+        "total_stretch_signals": 0,
+        "valid_entry_opportunities": 0,
+        "failed_entries_data_issues": 0,
+        "total_options_contracts": 0
+    }
+}
+
+# Function to track issues
+def track_issue(category, subcategory, message, level="warning", date=None):
+    """
+    Track an issue in the issue tracker.
+    
+    Parameters:
+    - category: Main category (e.g., "warnings", "errors")
+    - subcategory: Specific type of issue (e.g., "price_staleness")
+    - message: Description of the issue
+    - level: Severity level ("warning" or "error")
+    - date: Date when the issue occurred (for day-specific tracking)
+    """
+    # Always track the date with issues if provided
+    if date and category in ["warnings", "errors", "data_integrity"]:
+        issue_tracker["days"]["dates_with_issues"].add(date)
+    
+    # Track based on category and subcategory
+    if category == "warnings":
+        if subcategory in issue_tracker["warnings"]:
+            issue_tracker["warnings"][subcategory] += 1
+        else:
+            issue_tracker["warnings"]["other"] += 1
+            issue_tracker["warnings"]["details"].append(f"{date}: {message}")
+            
+    elif category == "errors":
+        if subcategory in issue_tracker["errors"]:
+            issue_tracker["errors"][subcategory] += 1
+        else:
+            issue_tracker["errors"]["other"] += 1
+            issue_tracker["errors"]["details"].append(f"{date}: {message}")
+            
+    elif category == "data_integrity":
+        if subcategory in issue_tracker["data_integrity"]:
+            issue_tracker["data_integrity"][subcategory] += 1
+            # Track days with timestamp mismatches
+            if subcategory == "timestamp_mismatches" and date:
+                issue_tracker["data_integrity"]["days_with_mismatches"].add(date)
+                
+    elif category == "opportunities":
+        if subcategory in issue_tracker["opportunities"]:
+            issue_tracker["opportunities"][subcategory] += 1
+
 # Use params for variables that were previously global
 DEBUG_MODE = PARAMS['debug_mode']
 start_date = PARAMS['start_date']
@@ -458,6 +537,9 @@ all_contracts = []  # Master list to store all contract data
 for date_obj in business_days:
     date = date_obj.strftime("%Y-%m-%d")
     print(f"\n📅 Processing {date}...")
+    
+    # Track day attempted
+    issue_tracker["days"]["attempted"] += 1
 
     try:
         # === STEP 5a: Load or pull SPY OHLCV ===
@@ -466,7 +548,9 @@ for date_obj in business_days:
             df_rth_filled = pd.read_pickle(spy_path)
             print("📂 SPY data loaded from cache.")
             if len(df_rth_filled) < PARAMS['min_spy_data_rows']:
-                print(f"⚠️ SPY data for {date} is unusually short with only {len(df_rth_filled)} rows. This may indicate incomplete data.")
+                short_data_msg = f"SPY data for {date} is unusually short with only {len(df_rth_filled)} rows. This may indicate incomplete data."
+                print(f"⚠️ {short_data_msg}")
+                track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
         else:
             base_url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/second/{date}/{date}"
             headers = {"Authorization": f"Bearer {API_KEY}"}
@@ -479,7 +563,9 @@ for date_obj in business_days:
                     url += f"&cursor={cursor}"
                 response = requests.get(url, headers=headers)
                 if response.status_code != 200:
-                    raise Exception(f"SPY price request failed: {response.status_code}")
+                    error_msg = f"SPY price request failed: {response.status_code}"
+                    track_issue("errors", "api_connection_failures", error_msg, level="error", date=date)
+                    raise Exception(error_msg)
 
                 json_data = response.json()
                 results = json_data.get("results", [])
@@ -491,7 +577,10 @@ for date_obj in business_days:
                     break
 
             if not all_results:
-                print(f"⚠️ No SPY data for {date} — skipping.")
+                no_data_msg = f"No SPY data for {date} — skipping."
+                print(f"⚠️ {no_data_msg}")
+                track_issue("warnings", f"no_{ticker}_data", no_data_msg, date=date)
+                issue_tracker["days"]["skipped_warnings"] += 1
                 continue
 
             df_raw = pd.DataFrame(all_results)
@@ -521,21 +610,31 @@ for date_obj in business_days:
             df_rth_filled["vwap_running"] = df_rth_filled["cum_pv"] / df_rth_filled["cum_vol"]
 
             if df_rth_filled["vwap_running"].isna().any():
-                raise ValueError("❌ NaNs detected in vwap_running — check data or ffill logic")
+                error_msg = "NaNs detected in vwap_running — check data or ffill logic"
+                track_issue("errors", "other", error_msg, level="error", date=date)
+                raise ValueError(f"❌ {error_msg}")
 
             if not df_rth_filled["vwap_running"].apply(lambda x: pd.notna(x) and np.isfinite(x)).all():
-                raise ValueError("❌ Non-finite values (inf/-inf) in vwap_running")
+                error_msg = "Non-finite values (inf/-inf) in vwap_running"
+                track_issue("errors", "other", error_msg, level="error", date=date)
+                raise ValueError(f"❌ {error_msg}")
 
             # Check for NaNs and non-finite values in critical columns
             critical_columns = ["open", "high", "low", "close", "volume", "vw"]
             for column in critical_columns:
                 if df_rth_filled[column].isna().any():
-                    raise ValueError(f"❌ NaNs detected in {column} — check data integrity")
+                    error_msg = f"NaNs detected in {column} — check data integrity"
+                    track_issue("errors", "other", error_msg, level="error", date=date)
+                    raise ValueError(f"❌ {error_msg}")
                 if not df_rth_filled[column].apply(lambda x: pd.notna(x) and np.isfinite(x)).all():
-                    raise ValueError(f"❌ Non-finite values (inf/-inf) in {column} — check data integrity")
+                    error_msg = f"Non-finite values (inf/-inf) in {column} — check data integrity"
+                    track_issue("errors", "other", error_msg, level="error", date=date)
+                    raise ValueError(f"❌ {error_msg}")
 
             if len(df_rth_filled) < PARAMS['min_spy_data_rows']:
-                print(f"⚠️ SPY data for {date} is unusually short with only {len(df_rth_filled)} rows after pulling from API. This may indicate incomplete data.")
+                short_data_msg = f"SPY data for {date} is unusually short with only {len(df_rth_filled)} rows after pulling from API. This may indicate incomplete data."
+                print(f"⚠️ {short_data_msg}")
+                track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
 
             df_rth_filled.to_pickle(spy_path)
             print("💾 SPY data pulled and cached.")
@@ -546,7 +645,9 @@ for date_obj in business_days:
             df_chain = pd.read_pickle(chain_path)
             print("📂 Option chain loaded from cache.")
             if len(df_chain) < PARAMS['min_option_chain_rows']:
-                print(f"⚠️ Option chain data for {date} is unusually short with only {len(df_chain)} rows. This may indicate incomplete data.")
+                short_data_msg = f"Option chain data for {date} is unusually short with only {len(df_chain)} rows. This may indicate incomplete data."
+                print(f"⚠️ {short_data_msg}")
+                track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
         else:
             def fetch_chain(contract_type):
                 url = (
@@ -563,7 +664,9 @@ for date_obj in business_days:
                 )
                 resp = requests.get(url)
                 if resp.status_code != 200:
-                    raise Exception(f"{contract_type.upper()} request failed: {resp.status_code}")
+                    error_msg = f"{contract_type.upper()} request failed: {resp.status_code}"
+                    track_issue("errors", "api_connection_failures", error_msg, level="error", date=date)
+                    raise Exception(error_msg)
                 df = pd.DataFrame(resp.json().get("results", []))
                 df["option_type"] = contract_type
                 return df
@@ -575,13 +678,18 @@ for date_obj in business_days:
 
             # Check for unusually short data before caching
             if len(df_chain) < PARAMS['min_option_chain_rows']:
-                print(f"⚠️ Option chain data for {date} is unusually short with only {len(df_chain)} rows after pulling from API. This may indicate incomplete data.")
+                short_data_msg = f"Option chain data for {date} is unusually short with only {len(df_chain)} rows after pulling from API. This may indicate incomplete data."
+                print(f"⚠️ {short_data_msg}")
+                track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
 
             df_chain.to_pickle(chain_path)
             print("💾 Option chain pulled and cached.")
 
         if df_chain.empty:
-            print(f"⚠️ No option chain data for {date} — skipping.")
+            no_data_msg = f"No option chain data for {date} — skipping."
+            print(f"⚠️ {no_data_msg}")
+            track_issue("warnings", "other", no_data_msg, date=date)
+            issue_tracker["days"]["skipped_warnings"] += 1
             continue
 
         # === Insert strategy logic here ===
@@ -589,18 +697,29 @@ for date_obj in business_days:
 
         # Log if no stretch signals are detected
         if stretch_signals.empty:
-            print(f"⚠️ No stretch signals detected for {date} — skipping.")
+            no_signals_msg = f"No stretch signals detected for {date} — skipping."
+            print(f"⚠️ {no_signals_msg}")
+            # This is normal behavior, not a warning
             continue
 
         stretch_signals = detect_partial_reclaims(df_rth_filled, stretch_signals, PARAMS)
         
         # Ensure 'entry_intent' column exists
         if 'entry_intent' not in stretch_signals.columns:
-            print(f"⚠️ 'entry_intent' column missing for {date} — skipping.")
+            error_msg = f"'entry_intent' column missing for {date} — skipping."
+            print(f"⚠️ {error_msg}")
+            track_issue("errors", "other", error_msg, level="error", date=date)
+            issue_tracker["days"]["skipped_errors"] += 1
             continue
 
         # Filter for valid entry signals
         valid_entries = stretch_signals[stretch_signals['entry_intent'] == True]
+        
+        # Track opportunity stats
+        total_signals = len(stretch_signals)
+        total_valid_entries = len(valid_entries)
+        issue_tracker["opportunities"]["total_stretch_signals"] += total_signals
+        issue_tracker["opportunities"]["valid_entry_opportunities"] += total_valid_entries
         
         # Initialize container for daily contracts
         daily_contracts = []
@@ -630,7 +749,9 @@ for date_obj in business_days:
                         df_option_rth = pd.read_pickle(option_path)
                         print(f"📂 Option price data for {option_ticker} loaded from cache.")
                         if len(df_option_rth) < PARAMS['min_option_price_rows']:
-                            print(f"⚠️ Option price data for {option_ticker} on {date} is unusually short with only {len(df_option_rth)} rows. This may indicate incomplete data.")
+                            short_data_msg = f"Option price data for {option_ticker} on {date} is unusually short with only {len(df_option_rth)} rows. This may indicate incomplete data."
+                            print(f"⚠️ {short_data_msg}")
+                            track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
                     else:
                         option_url = (
                             f"https://api.polygon.io/v2/aggs/ticker/{option_ticker}/range/1/second/"
@@ -641,7 +762,10 @@ for date_obj in business_days:
                         df_option = pd.DataFrame(option_results)
 
                         if df_option.empty:
-                            print(f"⚠️ No option price data for {option_ticker} on {date} — skipping this entry.")
+                            missing_data_msg = f"No option price data for {option_ticker} on {date} — skipping this entry."
+                            print(f"⚠️ {missing_data_msg}")
+                            track_issue("errors", "missing_option_price_data", missing_data_msg, level="error", date=date)
+                            issue_tracker["opportunities"]["failed_entries_data_issues"] += 1
                             continue
 
                         df_option["timestamp"] = pd.to_datetime(df_option["t"], unit="ms", utc=True).dt.tz_convert("US/Eastern")
@@ -660,7 +784,9 @@ for date_obj in business_days:
                         df_option_rth['is_actual_data'] = True
 
                         if len(df_option_rth) < PARAMS['min_option_price_rows']:
-                            print(f"⚠️ Option price data for {option_ticker} on {date} is unusually short with only {len(df_option_rth)} rows after pulling from API. This may indicate incomplete data.")
+                            short_data_msg = f"Option price data for {option_ticker} on {date} is unusually short with only {len(df_option_rth)} rows after pulling from API. This may indicate incomplete data."
+                            print(f"⚠️ {short_data_msg}")
+                            track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
 
                         df_option_rth.to_pickle(option_path)
                         print(f"💾 Option price data for {option_ticker} pulled and cached.")
@@ -705,6 +831,15 @@ for date_obj in business_days:
                     mismatch_count = (~df_option_aligned["ts_raw"].eq(df_rth_filled["ts_raw"])).sum()
                     print(f"🧪 Signal #{idx+1}: Timestamp mismatches for {option_ticker}: {mismatch_count}")
                     
+                    # Track timestamp mismatches
+                    if mismatch_count > 0:
+                        if mismatch_count > mismatch_threshold:
+                            mismatch_msg = f"Timestamp mismatch in {mismatch_count} rows exceeds threshold of {mismatch_threshold}"
+                            track_issue("data_integrity", "timestamp_mismatches", mismatch_msg, date=date)
+                        else:
+                            mismatch_msg = f"Timestamp mismatch in {mismatch_count} rows (below threshold of {mismatch_threshold})"
+                            track_issue("warnings", "timestamp_mismatches_below_threshold", mismatch_msg, date=date)
+                    
                     # Hash-based timestamp verification as additional sanity check
                     if DEBUG_MODE:
                         print(f"⏱️ SPY rows: {len(df_rth_filled)}")
@@ -720,17 +855,26 @@ for date_obj in business_days:
                         print(f"🔐 SPY hash:  {spy_hash}")
                         print(f"🔐 OPT hash:  {opt_hash}")
                         print(f"🔍 Hash match: {hash_match}")
+                        
+                        # Track hash mismatches
+                        if not hash_match:
+                            hash_mismatch_msg = f"Hash mismatch between SPY and option data"
+                            track_issue("data_integrity", "hash_mismatches", hash_mismatch_msg, date=date)
                     
                     # Check if mismatches exceed the threshold
                     if mismatch_count > mismatch_threshold:
                         print(f"⚠️ Timestamp mismatch in {mismatch_count} rows exceeds threshold of {mismatch_threshold} — skipping this entry.")
+                        issue_tracker["opportunities"]["failed_entries_data_issues"] += 1
                         continue
                     
                     # Lookup option price at entry time
                     option_row = df_option_aligned[df_option_aligned['ts_raw'] == entry_time]
                     
                     if option_row.empty:
-                        print(f"⚠️ Could not find option price for entry at {entry_time} - skipping this entry")
+                        missing_price_msg = f"Could not find option price for entry at {entry_time} - skipping this entry"
+                        print(f"⚠️ {missing_price_msg}")
+                        track_issue("errors", "missing_option_price_data", missing_price_msg, level="error", date=date)
+                        issue_tracker["opportunities"]["failed_entries_data_issues"] += 1
                         continue
                     
                     # Extract entry price for the option
@@ -742,7 +886,9 @@ for date_obj in business_days:
                     is_price_stale = price_staleness > staleness_threshold
                     
                     if is_price_stale and PARAMS['report_stale_prices']:
-                        print(f"⚠️ Signal #{idx+1}: Using stale option price at entry - {price_staleness:.1f} seconds old")
+                        staleness_msg = f"Signal #{idx+1}: Using stale option price at entry - {price_staleness:.1f} seconds old"
+                        print(f"⚠️ {staleness_msg}")
+                        track_issue("warnings", "price_staleness", staleness_msg, date=date)
                     
                     # Store contract with complete entry details
                     contract_with_entry = {
@@ -758,6 +904,9 @@ for date_obj in business_days:
                     }
                     daily_contracts.append(contract_with_entry)
                     
+                    # Track option contract selection
+                    issue_tracker["opportunities"]["total_options_contracts"] += 1
+                    
                     # Memory optimization: Clear the large DataFrame after use
                     del df_option_aligned
         
@@ -765,6 +914,9 @@ for date_obj in business_days:
         daily_entry_intent_signals = stretch_signals['entry_intent'].sum()
         total_entry_intent_signals += daily_entry_intent_signals
         days_processed += 1
+        
+        # Track successfully processed day
+        issue_tracker["days"]["processed"] += 1
 
         if DEBUG_MODE:
             print(f"🎯 Entry intent signals (valid reclaims): {daily_entry_intent_signals}")
@@ -801,7 +953,10 @@ for date_obj in business_days:
                 all_contracts.append(clean_contract)
 
     except Exception as e:
-        print(f"❌ {date} — Error: {str(e)}")
+        error_msg = f"{date} — Error: {str(e)}"
+        print(f"❌ {error_msg}")
+        track_issue("errors", "other", error_msg, level="error", date=date)
+        issue_tracker["days"]["skipped_errors"] += 1
         continue
 
 # Calculate and log the average number of daily entry intent signals
@@ -871,3 +1026,64 @@ if all_contracts:
                           'entry_option_price', 'price_staleness_seconds', 'is_price_stale']].head(10))
     else:
         print(contracts_df[['entry_time', 'option_type', 'strike_price', 'entry_spy_price', 'entry_option_price']].head(10))
+
+# ==================== GENERATE SUMMARY REPORT ====================
+print("\n" + "=" * 20 + " SUMMARY OF ERRORS + WARNINGS " + "=" * 20)
+
+# Processing Stats Section
+print("\n📊 PROCESSING STATS:")
+print(f"  - Days attempted: {issue_tracker['days']['attempted']}")
+print(f"  - Days successfully processed: {issue_tracker['days']['processed']}")
+print(f"  - Days skipped due to errors: {issue_tracker['days']['skipped_errors']}")
+print(f"  - Days skipped due to warnings: {issue_tracker['days']['skipped_warnings']}")
+
+# Data Integrity Section
+print("\n🔍 DATA INTEGRITY:")
+print(f"  - Hash mismatches: {issue_tracker['data_integrity']['hash_mismatches']}")
+mismatch_count = issue_tracker['data_integrity']['timestamp_mismatches']
+days_with_mismatches = issue_tracker['data_integrity']['days_with_mismatches']
+if mismatch_count > 0:
+    days_str = ", ".join(d for d in sorted(days_with_mismatches))
+    print(f"  - Timestamp mismatches: {mismatch_count} (on {days_str})")
+else:
+    print(f"  - Timestamp mismatches: {mismatch_count}")
+
+# Warning Summary
+print("\n⚠️ WARNING SUMMARY:")
+ticker_warnings = issue_tracker['warnings'][f"no_{ticker}_data"]
+print(f"  - No {ticker} Data: {ticker_warnings}")
+print(f"  - Price staleness: {issue_tracker['warnings']['price_staleness']}")
+print(f"  - Short data warnings: {issue_tracker['warnings']['short_data_warnings']}")
+print(f"  - Timestamp mismatches below threshold: {issue_tracker['warnings']['timestamp_mismatches_below_threshold']}")
+print(f"  - Other warnings: {issue_tracker['warnings']['other']}")
+
+# Show details of 'other' warnings if any exist
+if issue_tracker['warnings']['other'] > 0 and issue_tracker['warnings']['details']:
+    print("    Details:")
+    for detail in issue_tracker['warnings']['details'][:5]:  # Show first 5 to avoid clutter
+        print(f"    - {detail}")
+    if len(issue_tracker['warnings']['details']) > 5:
+        print(f"    ... and {len(issue_tracker['warnings']['details']) - 5} more")
+
+# Error Summary
+print("\n❌ ERROR SUMMARY:")
+print(f"  - Missing option price data: {issue_tracker['errors']['missing_option_price_data']}")
+print(f"  - API connection failures: {issue_tracker['errors']['api_connection_failures']}")
+print(f"  - Other errors: {issue_tracker['errors']['other']}")
+
+# Show details of 'other' errors if any exist
+if issue_tracker['errors']['other'] > 0 and issue_tracker['errors']['details']:
+    print("    Details:")
+    for detail in issue_tracker['errors']['details'][:5]:  # Show first 5 to avoid clutter
+        print(f"    - {detail}")
+    if len(issue_tracker['errors']['details']) > 5:
+        print(f"    ... and {len(issue_tracker['errors']['details']) - 5} more")
+
+# Opportunity Analysis
+print("\n🎯 OPPORTUNITY ANALYSIS:")
+print(f"  - Total stretch signals: {issue_tracker['opportunities']['total_stretch_signals']}")
+print(f"  - Valid entry opportunities: {issue_tracker['opportunities']['valid_entry_opportunities']}")
+print(f"  - Failed entries due to data issues: {issue_tracker['opportunities']['failed_entries_data_issues']}")
+print(f"  - Total options contracts selected: {issue_tracker['opportunities']['total_options_contracts']}")
+
+print("\n" + "=" * 20 + " END OF REPORT " + "=" * 20)
