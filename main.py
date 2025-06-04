@@ -11,6 +11,7 @@ import requests
 import os
 from datetime import time
 import hashlib
+import numpy as np
 
 # === DEBUG FLAG ===
 DEBUG_MODE = True  # Set to False to skip alignment diagnostics
@@ -88,9 +89,21 @@ for date_obj in business_days:
             df_rth_filled.rename(columns={"index": "timestamp"}, inplace=True)
             df_rth_filled["ts_raw"] = df_rth_filled["timestamp"]
             df_rth_filled["timestamp"] = df_rth_filled["timestamp"].dt.strftime("%Y-%m-%d %H:%M:%S %Z")
-            df_rth_filled["cum_pv"] = (df_rth_filled["close"] * df_rth_filled["volume"]).cumsum()
+            # === Updated VWAP using volume-weighted price (vw) ===
+            df_rth_filled["cum_pv"] = (df_rth_filled["vw"] * df_rth_filled["volume"]).cumsum()
             df_rth_filled["cum_vol"] = df_rth_filled["volume"].cumsum()
             df_rth_filled["vwap_running"] = df_rth_filled["cum_pv"] / df_rth_filled["cum_vol"]
+            # === VWAP sanity check ===
+            print("\n📊 Sample VWAP values (first 5 rows):")
+            print(df_rth_filled[["timestamp", "close", "vw", "vwap_running"]].head())
+
+            if df_rth_filled["vwap_running"].isna().any():
+                raise ValueError("❌ NaNs detected in vwap_running — check data or ffill logic")
+
+            if not df_rth_filled["vwap_running"].apply(lambda x: pd.notna(x) and np.isfinite(x)).all():
+                raise ValueError("❌ Non-finite values (inf/-inf) in vwap_running")
+
+
 
             df_rth_filled.to_pickle(spy_path)
             print("💾 SPY data pulled and cached.")
