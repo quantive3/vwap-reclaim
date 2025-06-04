@@ -1752,21 +1752,6 @@ if all_contracts:
         pnl_slipped_data = contracts_df['pnl_percent_slipped'].dropna()
         
         if not pnl_data.empty:
-            print("\n💰 Profit/Loss Statistics:")
-            print(f"  Average P&L: {pnl_data.mean():.2f}%")
-            print(f"  Median P&L: {pnl_data.median():.2f}%")
-            print(f"  Min P&L: {pnl_data.min():.2f}%")
-            print(f"  Max P&L: {pnl_data.max():.2f}%")
-            
-            # Add slippage-adjusted P&L statistics
-            if not pnl_slipped_data.empty:
-                print("\n💰 Slippage-Adjusted Profit/Loss Statistics:")
-                print(f"  Average P&L with slippage: {pnl_slipped_data.mean():.2f}%")
-                print(f"  Median P&L with slippage: {pnl_slipped_data.median():.2f}%")
-                print(f"  Min P&L with slippage: {pnl_slipped_data.min():.2f}%")
-                print(f"  Max P&L with slippage: {pnl_slipped_data.max():.2f}%")
-                print(f"  Average slippage impact: {contracts_df['slippage_impact_pct'].mean():.2f}%")
-            
             # Calculate dollar P&L statistics using contract multiplier
             contracts_df['pnl_per_share'] = contracts_df['exit_price'] - contracts_df['entry_option_price']
             # Apply contract multiplier for true dollar P&L
@@ -1797,37 +1782,13 @@ if all_contracts:
             dollar_pnl_slipped_with_fees_data = contracts_df['pnl_dollars_slipped_with_fees'].dropna()
             
             if not dollar_pnl_data.empty:
-                print("\n💵 Dollar P&L Statistics (with contract multiplier):")
-                print(f"  Average P&L: ${dollar_pnl_data.mean():.2f}")
-                print(f"  Median P&L: ${dollar_pnl_data.median():.2f}")
-                print(f"  Min P&L: ${dollar_pnl_data.min():.2f}")
-                print(f"  Max P&L: ${dollar_pnl_data.max():.2f}")
+                # Dollar P&L Statistics section removed as requested
                 
-                # Add slippage-adjusted dollar P&L statistics
-                if not dollar_pnl_slipped_data.empty:
-                    print("\n💵 Slippage-Adjusted Dollar P&L Statistics (with contract multiplier):")
-                    print(f"  Average P&L with slippage: ${dollar_pnl_slipped_data.mean():.2f}")
-                    print(f"  Median P&L with slippage: ${dollar_pnl_slipped_data.median():.2f}")
-                    print(f"  Min P&L with slippage: ${dollar_pnl_slipped_data.min():.2f}")
-                    print(f"  Max P&L with slippage: ${dollar_pnl_slipped_data.max():.2f}")
-                    print(f"  Average slippage impact: ${contracts_df['slippage_impact_dollars'].mean():.2f} per contract")
+                # Slippage-adjusted dollar P&L statistics section removed as requested
                 
-                # Add transaction cost statistics
-                if not dollar_pnl_with_fees_data.empty:
-                    print("\n💵 Transaction Cost-Adjusted P&L Statistics:")
-                    print(f"  Average transaction cost per trade: ${contracts_df['transaction_cost_total'].mean():.2f}")
-                    print(f"  Average P&L after fees: ${dollar_pnl_with_fees_data.mean():.2f}")
-                    print(f"  Median P&L after fees: ${dollar_pnl_with_fees_data.median():.2f}")
-                    print(f"  Min P&L after fees: ${dollar_pnl_with_fees_data.min():.2f}")
-                    print(f"  Max P&L after fees: ${dollar_pnl_with_fees_data.max():.2f}")
-                    
-                    # Add fully adjusted P&L (slippage + fees)
-                    if not dollar_pnl_slipped_with_fees_data.empty:
-                        print("\n💵 Fully Adjusted P&L Statistics (slippage + fees):")
-                        print(f"  Average P&L (slippage + fees): ${dollar_pnl_slipped_with_fees_data.mean():.2f}")
-                        print(f"  Median P&L (slippage + fees): ${dollar_pnl_slipped_with_fees_data.median():.2f}")
-                        print(f"  Min P&L (slippage + fees): ${dollar_pnl_slipped_with_fees_data.min():.2f}")
-                        print(f"  Max P&L (slippage + fees): ${dollar_pnl_slipped_with_fees_data.max():.2f}")
+                # Transaction cost statistics section removed as requested
+                
+                # Fully adjusted P&L section removed as requested
                 
                 # Calculate total capital risked and total P&L with contract multiplier
                 total_pnl = dollar_pnl_data.sum()
@@ -1836,46 +1797,8 @@ if all_contracts:
                 total_pnl_slipped_with_fees = dollar_pnl_slipped_with_fees_data.sum()
                 total_risked = (contracts_df['entry_option_price'] * contracts_df['shares_per_contract'] * CONTRACTS_PER_TRADE).sum()
                 total_risked_slipped = (contracts_df['entry_option_price_slipped'] * contracts_df['shares_per_contract'] * CONTRACTS_PER_TRADE).sum()
-                total_transaction_costs = contracts_df['transaction_cost_total'].sum()
-                
-                print(f"\n  Total capital risked (original): ${total_risked:.2f}")
-                print(f"  Total P&L (original): ${total_pnl:.2f} ({(total_pnl/total_risked*100):.2f}% return on risked capital)")
-                print(f"  Total contracts traded: {len(contracts_df) * CONTRACTS_PER_TRADE}")
-                
-                print(f"  Total capital risked (with slippage): ${total_risked_slipped:.2f}")
-                print(f"  Total P&L (with slippage): ${total_pnl_slipped:.2f} ({(total_pnl_slipped/total_risked_slipped*100):.2f}% return on risked capital)")
-                print(f"  Total slippage cost: ${total_pnl - total_pnl_slipped:.2f}")
-                
-                print(f"  Total transaction costs: ${total_transaction_costs:.2f}")
-                print(f"  Total P&L after fees: ${total_pnl_with_fees:.2f} ({(total_pnl_with_fees/total_risked*100):.2f}% return on risked capital)")
-                print(f"  Total P&L after slippage and fees: ${total_pnl_slipped_with_fees:.2f} ({(total_pnl_slipped_with_fees/total_risked_slipped*100):.2f}% return on risked capital)")
-            
-            # Calculate win rate
-            profitable_trades = (pnl_data > 0).sum()
-            win_rate = profitable_trades / len(pnl_data) * 100
-            
-            # Calculate slippage-adjusted win rate
-            profitable_trades_slipped = (pnl_slipped_data > 0).sum()
-            win_rate_slipped = profitable_trades_slipped / len(pnl_slipped_data) * 100
-            
-            # Calculate fee-adjusted win rates
-            if not dollar_pnl_with_fees_data.empty:
-                profitable_trades_with_fees = (dollar_pnl_with_fees_data > 0).sum()
-                win_rate_with_fees = profitable_trades_with_fees / len(dollar_pnl_with_fees_data) * 100
-                
-                # Calculate fully adjusted win rate (slippage + fees)
-                if not dollar_pnl_slipped_with_fees_data.empty:
-                    profitable_trades_slipped_with_fees = (dollar_pnl_slipped_with_fees_data > 0).sum()
-                    win_rate_slipped_with_fees = profitable_trades_slipped_with_fees / len(dollar_pnl_slipped_with_fees_data) * 100
-            
-            print(f"  Win rate (original): {win_rate:.1f}% ({profitable_trades}/{len(pnl_data)})")
-            print(f"  Win rate (with slippage): {win_rate_slipped:.1f}% ({profitable_trades_slipped}/{len(pnl_slipped_data)})")
-            
-            # Display fee-adjusted win rates if available
-            if not dollar_pnl_with_fees_data.empty:
-                print(f"  Win rate (with fees): {win_rate_with_fees:.1f}% ({profitable_trades_with_fees}/{len(dollar_pnl_with_fees_data)})")
-                if not dollar_pnl_slipped_with_fees_data.empty:
-                    print(f"  Win rate (with slippage + fees): {win_rate_slipped_with_fees:.1f}% ({profitable_trades_slipped_with_fees}/{len(dollar_pnl_slipped_with_fees_data)})")
+                # All calculations for total P&L, win rates, etc. have been removed
+                # since they're not used anywhere else in the code
             
             # Average P&L by exit reason
             print("\n  P&L by Exit Reason:")
