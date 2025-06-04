@@ -62,6 +62,18 @@ def detect_stretch_signal(df_rth_filled, params):
 #        print("\nFirst 5 Stretch Signals:")
 #        print(signals[['timestamp', 'close', 'vwap_running', 'percentage_stretch']].head())
     
+    # Tag each stretch signal with "above" or "below"
+    signals['stretch_label'] = np.where(
+        signals['close'] > signals['vwap_running'], 'above', 'below'
+    )
+    
+    # Log the first 5 stretch labels for "above" and "below"
+    if DEBUG_MODE:
+        print("\nFirst 5 'Above' Stretch Signals:")
+        print(signals[signals['stretch_label'] == 'above'][['timestamp', 'close', 'vwap_running', 'percentage_stretch', 'stretch_label']].head())
+        print("\nFirst 5 'Below' Stretch Signals:")
+        print(signals[signals['stretch_label'] == 'below'][['timestamp', 'close', 'vwap_running', 'percentage_stretch', 'stretch_label']].head())
+    
     return signals
 
 # === STEP 8: Backtest loop ===
@@ -240,8 +252,15 @@ for date_obj in business_days:
 
         # === Insert strategy logic here ===
         stretch_signals = detect_stretch_signal(df_rth_filled, PARAMS)
+#        if DEBUG_MODE:
+#             print(f"🔍 Detected {len(stretch_signals)} stretch signals on {date}.")
+
         if DEBUG_MODE:
-            print(f"🔍 Detected {len(stretch_signals)} stretch signals on {date}.")
+            # Log the daily breakdown of stretch signals
+            above_count = len(stretch_signals[stretch_signals['stretch_label'] == 'above'])
+            below_count = len(stretch_signals[stretch_signals['stretch_label'] == 'below'])
+            total_count = len(stretch_signals)
+            print(f"🔍 Detected {total_count} stretch signals on {date} (Above: {above_count}, Below: {below_count}).")
 
     except Exception as e:
         print(f"❌ {date} — Error: {str(e)}")
