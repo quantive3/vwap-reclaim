@@ -1411,25 +1411,25 @@ for date_obj in business_days:
                             track_issue("warnings", "timestamp_mismatches_below_threshold", mismatch_msg, date=date)
                     
                     # Hash-based timestamp verification as additional sanity check
+                    def hash_timestamps(df):
+                        return hashlib.md5("".join(df["ts_raw"].astype(str)).encode()).hexdigest()
+
+                    spy_hash = hash_timestamps(df_rth_filled)
+                    opt_hash = hash_timestamps(df_option_aligned)
+                    hash_match = spy_hash == opt_hash
+                    
+                    # Track hash mismatches - this happens regardless of debug mode
+                    if not hash_match:
+                        hash_mismatch_msg = f"Hash mismatch between SPY and option data"
+                        track_issue("data_integrity", "hash_mismatches", hash_mismatch_msg, date=date)
+                    
+                    # Only print the debug information if debug mode is on
                     if DEBUG_MODE:
                         print(f"⏱️ SPY rows: {len(df_rth_filled)}")
                         print(f"⏱️ OPT rows: {len(df_option_aligned)}")
-
-                        def hash_timestamps(df):
-                            return hashlib.md5("".join(df["ts_raw"].astype(str)).encode()).hexdigest()
-
-                        spy_hash = hash_timestamps(df_rth_filled)
-                        opt_hash = hash_timestamps(df_option_aligned)
-                        hash_match = spy_hash == opt_hash
-                        
                         print(f"🔐 SPY hash:  {spy_hash}")
                         print(f"🔐 OPT hash:  {opt_hash}")
                         print(f"🔍 Hash match: {hash_match}")
-                        
-                        # Track hash mismatches
-                        if not hash_match:
-                            hash_mismatch_msg = f"Hash mismatch between SPY and option data"
-                            track_issue("data_integrity", "hash_mismatches", hash_mismatch_msg, date=date)
                     
                     # Check if mismatches exceed the threshold
                     if mismatch_count > mismatch_threshold:
