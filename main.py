@@ -32,7 +32,6 @@ PARAMS = {
     
     # Instrument selection
     'ticker': 'SPY',
-    'option_type': 'call',  # 'call' or 'put'
     'require_same_day_expiry': True,  # Whether to strictly require same-day expiry options
     'strikes_depth': 1,  # Number of strikes from ATM to target (1 = closest, 2 = second closest, etc.). Always use 1 or greater.
     'option_selection_mode': 'itm',  # Options: 'itm', 'otm', or 'atm' - determines whether to select in-the-money, out-of-money, or at-the-money options
@@ -438,7 +437,6 @@ def select_option_contract(entry_signal, df_chain, spy_price, params):
         print(f"✅ Selected {option_type.upper()} option: {contract_details['ticker']} with strike {contract_details['strike_price']} ({moneyness_status}, {expiry_status})")
         print(f"   Underlying price: {spy_price}, Strike diff: {contract_details['abs_diff']:.4f}")
         print(f"   Entry timestamp: {entry_signal['reclaim_ts']}, Expiration date: {contract_details['expiration_date']}")
-        print(f"   ITM depth: {strikes_itm_depth} strikes")
     
     if DEBUG_MODE:
 #        print(f"DEBUG: Stretch direction: {entry_signal['stretch_label']}")
