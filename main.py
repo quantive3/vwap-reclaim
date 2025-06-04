@@ -303,6 +303,7 @@ def select_option_contract(entry_signal, df_chain, spy_price, params):
         itm_status = "ITM" if contract_details['is_itm'] else ("ATM" if contract_details['is_atm'] else "OTM")
         print(f"✅ Selected {option_type.upper()} option: {contract_details['ticker']} with strike {contract_details['strike_price']} ({itm_status})")
         print(f"   Underlying price: {spy_price}, Strike diff: {contract_details['abs_diff']:.4f}")
+        print(f"   Entry timestamp: {entry_signal['reclaim_ts']}")
     
 #    if DEBUG_MODE:
 #        print(f"DEBUG: Stretch direction: {entry_signal['stretch_label']}")
