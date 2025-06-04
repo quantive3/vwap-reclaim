@@ -343,9 +343,48 @@ for date_obj in business_days:
         # === STEP 5c: Select ATM contract ===
         spy_open_price = df_rth_filled["close"].iloc[0]
         df_calls_only = df_chain[df_chain["option_type"] == "call"].copy()
+
+        # Check if we have any call options available
+        if df_calls_only.empty:
+            error_msg = f"❌ No call options available for {date} — cannot select ATM contract"
+            print(error_msg)
+            raise ValueError(error_msg)
+
+        # Check if strike_price column exists and has valid numeric data
+        if "strike_price" not in df_calls_only.columns:
+            error_msg = f"❌ strike_price column missing in options chain data for {date}"
+            print(error_msg)
+            raise ValueError(error_msg)
+
+        # Check for non-numeric or NaN strike prices
+        invalid_strikes = df_calls_only["strike_price"].isna().sum()
+        if invalid_strikes > 0:
+            error_msg = f"❌ Found {invalid_strikes} call options with invalid strike prices for {date}"
+            print(error_msg)
+            raise ValueError(error_msg)
+
+        # Calculate absolute difference for ATM selection
         df_calls_only["abs_diff"] = (df_calls_only["strike_price"] - spy_open_price).abs()
+
+        # Log the closest strikes for debugging (optional)
+        if DEBUG_MODE:
+            closest_strikes = df_calls_only.sort_values("abs_diff").head(3)
+            print(f"🎯 Top 3 closest strikes to {spy_open_price}:")
+            for _, row in closest_strikes.iterrows():
+                print(f"  Strike: {row['strike_price']}, Diff: {row['abs_diff']:.4f}")
+
+        # Sort and select the closest strike
         atm_call = df_calls_only.sort_values("abs_diff").iloc[0]
         option_ticker = atm_call["ticker"]
+
+        # Check if we got a valid ticker
+        if not isinstance(option_ticker, str) or not option_ticker:
+            error_msg = f"❌ Selected invalid option ticker: {option_ticker}"
+            print(error_msg)
+            raise ValueError(error_msg)
+
+        if DEBUG_MODE:
+            print(f"✅ Selected ATM call: {option_ticker} with strike {atm_call['strike_price']}")
 
         # === STEP 5d: Load or pull option price data ===
         option_path = os.path.join(OPTION_DIR, f"{date}_{option_ticker.replace(':', '')}.pkl")
