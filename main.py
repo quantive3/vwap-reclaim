@@ -1995,3 +1995,58 @@ print(f"  - Regular end-of-day exits: {sum(1 for c in all_contracts if c.get('ex
 print(f"  - Total trades with defined exit reason: {sum(1 for c in all_contracts if c.get('exit_reason') is not None)}")
 
 print("\n" + "=" * 20 + " END OF REPORT " + "=" * 20)
+
+# ==================== PERFORMANCE SUMMARY ====================
+if all_contracts:
+    # Create DataFrame if not already created
+    if 'contracts_df' not in locals():
+        contracts_df = pd.DataFrame(all_contracts)
+    
+    print("\n" + "=" * 20 + " PERFORMANCE SUMMARY " + "=" * 20)
+    
+    # 1. Total number of trades
+    total_trades = len(contracts_df)
+    print(f"\n💼 TOTAL TRADES: {total_trades}")
+    
+    # Filter for trades with valid fully-adjusted P&L data (slippage + fees)
+    valid_pnl_contracts = contracts_df.dropna(subset=['pnl_dollars_slipped_with_fees'])
+    
+    if not valid_pnl_contracts.empty:
+        # 2. Average PNL per trade (fully adjusted for slippage, latency, and fees)
+        avg_pnl = valid_pnl_contracts['pnl_dollars_slipped_with_fees'].mean()
+        print(f"\n💰 AVERAGE PNL PER TRADE: ${avg_pnl:.2f}")
+        
+        # 3. Sharpe Ratio (using daily returns, fully adjusted)
+        # Group by date to get daily returns
+        daily_returns = valid_pnl_contracts.groupby(valid_pnl_contracts['entry_time'].dt.date)['pnl_dollars_slipped_with_fees'].sum()
+        
+        if len(daily_returns) > 1:  # Need at least 2 days to calculate Sharpe
+            # Unannualized Sharpe: Mean daily return / StdDev of daily returns
+            mean_daily_return = daily_returns.mean()
+            std_daily_return = daily_returns.std()
+            
+            if std_daily_return > 0:  # Prevent division by zero
+                sharpe_ratio = mean_daily_return / std_daily_return
+                print(f"\n📈 UNANNUALIZED SHARPE RATIO: {sharpe_ratio:.2f}")
+            else:
+                print("\n📈 UNANNUALIZED SHARPE RATIO: N/A (insufficient volatility)")
+        else:
+            print("\n📈 SHARPE RATIO: N/A (need data from at least two days)")
+        
+        # 4. Profit Factor (fully adjusted)
+        # Profit factor = Gross Profit / Gross Loss
+        winning_trades = valid_pnl_contracts[valid_pnl_contracts['pnl_dollars_slipped_with_fees'] > 0]
+        losing_trades = valid_pnl_contracts[valid_pnl_contracts['pnl_dollars_slipped_with_fees'] < 0]
+        
+        gross_profit = winning_trades['pnl_dollars_slipped_with_fees'].sum() if not winning_trades.empty else 0
+        gross_loss = abs(losing_trades['pnl_dollars_slipped_with_fees'].sum()) if not losing_trades.empty else 0
+        
+        if gross_loss > 0:
+            profit_factor = gross_profit / gross_loss
+            print(f"\n📊 PROFIT FACTOR: {profit_factor:.2f}")
+        else:
+            print("\n📊 PROFIT FACTOR: ∞ (no losing trades)")
+    else:
+        print("\n⚠️ No valid P&L data available for performance metrics")
+
+print("\n" + "=" * 20 + " END OF PERFORMANCE SUMMARY " + "=" * 20)
