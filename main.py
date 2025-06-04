@@ -33,9 +33,9 @@ PARAMS = {
     'option_type': 'call',  # 'call' or 'put'
     
     # Data quality thresholds - for error checking
-    'min_spy_data_rows': 1000,  # Minimum acceptable rows for SPY data
+    'min_spy_data_rows': 10000,  # Minimum acceptable rows for SPY data
     'min_option_chain_rows': 10,  # Minimum acceptable rows for option chain data
-    'min_option_price_rows': 100,  # Minimum acceptable rows for option price data
+    'min_option_price_rows': 10000,  # Minimum acceptable rows for option price data
     'timestamp_mismatch_threshold': 0,  # Maximum allowable timestamp mismatches
     
     # Debug settings
