@@ -1078,7 +1078,8 @@ all_contracts = []  # Master list to store all contract data
 # === STEP 8: Backtest loop ===
 for date_obj in business_days:
     date = date_obj.strftime("%Y-%m-%d")
-    print(f"\n📅 Processing {date}...")
+    if DEBUG_MODE:
+        print(f"\n📅 Processing {date}...")
     
     # Track day attempted
     issue_tracker["days"]["attempted"] += 1
@@ -1088,7 +1089,8 @@ for date_obj in business_days:
         spy_path = os.path.join(SPY_DIR, f"{ticker}_{date}.pkl")
         if os.path.exists(spy_path):
             df_rth_filled = pd.read_pickle(spy_path)
-            print("📂 SPY data loaded from cache.")
+            if DEBUG_MODE:
+                print("📂 SPY data loaded from cache.")
             if len(df_rth_filled) < PARAMS['min_spy_data_rows']:
                 short_data_msg = f"SPY data for {date} is unusually short with only {len(df_rth_filled)} rows. This may indicate incomplete data."
                 print(f"⚠️ {short_data_msg}")
@@ -1179,13 +1181,15 @@ for date_obj in business_days:
                 track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
 
             df_rth_filled.to_pickle(spy_path)
-            print("💾 SPY data pulled and cached.")
+            if DEBUG_MODE:
+                print("💾 SPY data pulled and cached.")
 
         # === STEP 5b: Load or pull option chain ===
         chain_path = os.path.join(CHAIN_DIR, f"{ticker}_chain_{date}.pkl")
         if os.path.exists(chain_path):
             df_chain = pd.read_pickle(chain_path)
-            print("📂 Option chain loaded from cache.")
+            if DEBUG_MODE:
+                print("📂 Option chain loaded from cache.")
             if len(df_chain) < PARAMS['min_option_chain_rows']:
                 short_data_msg = f"Option chain data for {date} is unusually short with only {len(df_chain)} rows. This may indicate incomplete data."
                 print(f"⚠️ {short_data_msg}")
@@ -1225,7 +1229,8 @@ for date_obj in business_days:
                 track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
 
             df_chain.to_pickle(chain_path)
-            print("💾 Option chain pulled and cached.")
+            if DEBUG_MODE:
+                print("💾 Option chain pulled and cached.")
 
         if df_chain.empty:
             no_data_msg = f"No option chain data for {date} — skipping."
@@ -1268,7 +1273,8 @@ for date_obj in business_days:
         
         # MODIFIED: Process ALL valid entries instead of just the first one
         if not valid_entries.empty:
-            print(f"✅ Found {len(valid_entries)} valid entry signals for {date}")
+            if DEBUG_MODE:
+                print(f"✅ Found {len(valid_entries)} valid entry signals for {date}")
             
             # Process each valid entry signal
             for idx, entry_signal in valid_entries.iterrows():
@@ -1312,7 +1318,8 @@ for date_obj in business_days:
                     option_path = os.path.join(OPTION_DIR, f"{date}_{option_ticker.replace(':', '')}.pkl")
                     if os.path.exists(option_path):
                         df_option_rth = pd.read_pickle(option_path)
-                        print(f"📂 Option price data for {option_ticker} loaded from cache.")
+                        if DEBUG_MODE:
+                            print(f"📂 Option price data for {option_ticker} loaded from cache.")
                         if len(df_option_rth) < PARAMS['min_option_price_rows']:
                             short_data_msg = f"Option price data for {option_ticker} on {date} is unusually short with only {len(df_option_rth)} rows. This may indicate incomplete data."
                             print(f"⚠️ {short_data_msg}")
@@ -1354,7 +1361,8 @@ for date_obj in business_days:
                             track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
 
                         df_option_rth.to_pickle(option_path)
-                        print(f"💾 Option price data for {option_ticker} pulled and cached.")
+                        if DEBUG_MODE:
+                            print(f"💾 Option price data for {option_ticker} pulled and cached.")
                     
                     # === STEP 5e: Timestamp alignment check ===
                     # Add is_actual_data column if loading from cache and column doesn't exist
@@ -1394,7 +1402,8 @@ for date_obj in business_days:
                     
                     # Check for timestamp mismatches
                     mismatch_count = (~df_option_aligned["ts_raw"].eq(df_rth_filled["ts_raw"])).sum()
-                    print(f"🧪 Signal #{idx+1}: Timestamp mismatches for {option_ticker}: {mismatch_count}")
+                    if DEBUG_MODE:
+                        print(f"🧪 Signal #{idx+1}: Timestamp mismatches for {option_ticker}: {mismatch_count}")
                     
                     # Track timestamp mismatches
                     if mismatch_count > 0:
