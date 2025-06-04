@@ -1230,6 +1230,19 @@ if all_contracts:
     
     # Add P&L statistics
     if 'pnl_percent' in contracts_df.columns:
+        # Count total trades vs trades with P&L
+        total_trades = len(contracts_df)
+        trades_with_pnl = contracts_df['pnl_percent'].notna().sum()
+        trades_missing_pnl = total_trades - trades_with_pnl
+        
+        # Calculate percentage of missing P&L
+        missing_pnl_percent = (trades_missing_pnl / total_trades) * 100 if total_trades > 0 else 0
+        
+        # Report the missing P&L percentage
+        print(f"\n📊 P&L Data Completeness:")
+        print(f"  Trades with P&L data: {trades_with_pnl}/{total_trades} ({100-missing_pnl_percent:.1f}%)")
+        print(f"  Trades missing P&L data: {trades_missing_pnl}/{total_trades} ({missing_pnl_percent:.1f}%)")
+        
         # Filter out None/NaN values
         pnl_data = contracts_df['pnl_percent'].dropna()
         
