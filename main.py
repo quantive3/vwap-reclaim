@@ -34,6 +34,7 @@ PARAMS = {
     'ticker': 'SPY',
     'option_type': 'call',  # 'call' or 'put'
     'require_same_day_expiry': True,  # Whether to strictly require same-day expiry options
+    'strikes_itm_depth': 1,  # Number of strikes ITM to target (1 = closest ITM, 2 = second closest, etc.)
     
     # Data quality thresholds - for error checking
     'min_spy_data_rows': 10000,  # Minimum acceptable rows for SPY data
@@ -291,6 +292,9 @@ def select_option_contract(entry_signal, df_chain, spy_price, params):
     # If there's an exact match (unlikely but possible), use it
     exact_match = atm_chain[atm_chain['strike_price'] == spy_price]
     
+    # Get the target ITM depth (how many strikes in-the-money to go)
+    strikes_itm_depth = params.get('strikes_itm_depth', 1)  # Default to 1 if not specified
+    
     if not exact_match.empty:
         selected_contract = exact_match.iloc[0]
     else:
@@ -299,16 +303,26 @@ def select_option_contract(entry_signal, df_chain, spy_price, params):
         if option_type == 'call':
             itm_contracts = atm_chain[atm_chain['strike_price'] < spy_price]
             if not itm_contracts.empty:
-                # Get the highest strike that's still ITM (closest to ATM)
-                selected_contract = itm_contracts.sort_values('strike_price', ascending=False).iloc[0]
+                # Sort by strike price in descending order (highest strike first)
+                itm_sorted = itm_contracts.sort_values('strike_price', ascending=False)
+                
+                # Get the nth ITM strike based on depth parameter
+                # (position 0 is closest to ATM, 1 is one strike deeper ITM, etc.)
+                target_idx = min(strikes_itm_depth - 1, len(itm_sorted) - 1)
+                selected_contract = itm_sorted.iloc[target_idx]
             else:
                 # If no ITM contracts, just get the closest ATM
                 selected_contract = atm_chain.iloc[0]
         else:  # put
             itm_contracts = atm_chain[atm_chain['strike_price'] > spy_price]
             if not itm_contracts.empty:
-                # Get the lowest strike that's still ITM (closest to ATM)
-                selected_contract = itm_contracts.sort_values('strike_price', ascending=True).iloc[0]
+                # Sort by strike price in ascending order (lowest strike first)
+                itm_sorted = itm_contracts.sort_values('strike_price', ascending=True)
+                
+                # Get the nth ITM strike based on depth parameter
+                # (position 0 is closest to ATM, 1 is one strike deeper ITM, etc.)
+                target_idx = min(strikes_itm_depth - 1, len(itm_sorted) - 1)
+                selected_contract = itm_sorted.iloc[target_idx]
             else:
                 # If no ITM contracts, just get the closest ATM
                 selected_contract = atm_chain.iloc[0]
@@ -323,7 +337,8 @@ def select_option_contract(entry_signal, df_chain, spy_price, params):
         'is_atm': selected_contract['strike_price'] == spy_price,
         'is_itm': (option_type == 'call' and selected_contract['strike_price'] < spy_price) or
                   (option_type == 'put' and selected_contract['strike_price'] > spy_price),
-        'is_same_day_expiry': selected_contract.get('expiration_date', '') == current_date
+        'is_same_day_expiry': selected_contract.get('expiration_date', '') == current_date,
+        'itm_depth': strikes_itm_depth  # Add the ITM depth to the contract details for reference
     }
     
     if params['debug_mode']:
@@ -332,6 +347,7 @@ def select_option_contract(entry_signal, df_chain, spy_price, params):
         print(f"✅ Selected {option_type.upper()} option: {contract_details['ticker']} with strike {contract_details['strike_price']} ({itm_status}, {expiry_status})")
         print(f"   Underlying price: {spy_price}, Strike diff: {contract_details['abs_diff']:.4f}")
         print(f"   Entry timestamp: {entry_signal['reclaim_ts']}, Expiration date: {contract_details['expiration_date']}")
+        print(f"   ITM depth: {strikes_itm_depth} strikes")
     
 #    if DEBUG_MODE:
 #        print(f"DEBUG: Stretch direction: {entry_signal['stretch_label']}")
