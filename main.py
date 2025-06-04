@@ -74,15 +74,42 @@ def detect_stretch_signal(df_rth_filled, params):
     entry_start = params['entry_start_time']
     entry_end = params['entry_end_time']
 
-    signals['ts_obj'] = signals['ts_raw'].dt.time
-    signals = signals[(signals['ts_obj'] >= entry_start) & (signals['ts_obj'] <= entry_end)]
-    signals.drop(columns=['ts_obj'], inplace=True)
-    signals = signals[signals['ts_raw'].notna()].sort_values("ts_raw").reset_index(drop=True)
+    # Count signals before time filtering for diagnostic purposes
+    signals_before_time_filter = len(signals)
 
-#    if DEBUG_MODE:
-#        print("\n🧹 Post-filter signal integrity check:")
-#        print(f"  NaT timestamps: {signals['ts_raw'].isna().sum()}")
-#        print(f"  Time ordered: {signals['ts_raw'].is_monotonic_increasing}")
+    try:
+        # Convert timestamp to time objects for filtering
+        signals['ts_obj'] = signals['ts_raw'].dt.time
+        
+        # Check for NaN or invalid timestamps before filtering
+        invalid_timestamps = signals['ts_raw'].isna().sum()
+        if invalid_timestamps > 0 and DEBUG_MODE:
+            print(f"⚠️ Found {invalid_timestamps} signals with invalid timestamps before time filtering")
+            
+        # Apply the time filter - core logic unchanged
+        signals = signals[(signals['ts_obj'] >= entry_start) & (signals['ts_obj'] <= entry_end)]
+        signals.drop(columns=['ts_obj'], inplace=True)
+        signals = signals[signals['ts_raw'].notna()].sort_values("ts_raw").reset_index(drop=True)
+        
+    except Exception as e:
+        # Capture errors in timestamp conversion or filtering
+        error_msg = f"❌ Error during time filtering of signals: {str(e)}"
+        print(error_msg)
+        raise ValueError(error_msg)
+    
+    # Count signals after time filtering for diagnostic purposes
+    signals_after_time_filter = len(signals)
+    signals_dropped = signals_before_time_filter - signals_after_time_filter
+
+    # Log time filtering results without affecting logic
+    if DEBUG_MODE and signals_dropped > 0:
+        print(f"ℹ️ Time filtering: {signals_dropped} signals were outside the {entry_start}-{entry_end} trading window")
+        print(f"ℹ️ Signals before time filter: {signals_before_time_filter}, after: {signals_after_time_filter}")
+
+    if DEBUG_MODE:
+        print("\n🧹 Post-filter signal integrity check:")
+        print(f"  NaT timestamps: {signals['ts_raw'].isna().sum()}")
+        print(f"  Time ordered: {signals['ts_raw'].is_monotonic_increasing}")
 
         # Log the first 5 stretch labels for "above" and "below"
 #    if DEBUG_MODE:
@@ -110,6 +137,14 @@ def detect_stretch_signal(df_rth_filled, params):
 
     # Convert filtered signals to DataFrame
     processed_signals_df = pd.DataFrame(filtered_signals)
+    
+    # Additional diagnostic for cooldown filtering
+    if DEBUG_MODE:
+        signals_after_cooldown = len(processed_signals_df)
+        signals_dropped_by_cooldown = len(signals) - signals_after_cooldown
+        if signals_dropped_by_cooldown > 0:
+            print(f"ℹ️ Cooldown filtering: {signals_dropped_by_cooldown} signals were dropped due to cooldown period")
+            print(f"ℹ️ Signals before cooldown: {len(signals)}, after: {signals_after_cooldown}")
 
 #    if DEBUG_MODE:
         # Log the first 5 processed 'above' stretch signals
