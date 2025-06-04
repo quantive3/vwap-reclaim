@@ -7,6 +7,8 @@ API_KEY = input("🔑 Enter your Polygon API key: ").strip()
 
 # === STEP 3: Imports and setup ===
 import pandas as pd
+# Set pandas option to use future behavior for fill operations
+pd.set_option('future.no_silent_downcasting', True)
 import requests
 import os
 from datetime import time
@@ -537,7 +539,9 @@ for date_obj in business_days:
                 
                 # Align and forward fill the option data using the recommended pattern
                 df_option_aligned = df_option_rth.set_index("timestamp").reindex(df_rth_filled["ts_raw"])
-                df_option_aligned = df_option_aligned.ffill().infer_objects(copy=False).reset_index()
+                df_option_aligned = df_option_aligned.ffill()
+                df_option_aligned = df_option_aligned.infer_objects(copy=False)
+                df_option_aligned = df_option_aligned.reset_index()
                 df_option_aligned.rename(columns={"index": "ts_raw"}, inplace=True)
                 
                 # Initialize staleness tracking
