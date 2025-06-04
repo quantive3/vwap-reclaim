@@ -13,13 +13,41 @@ from datetime import time
 import hashlib
 import numpy as np
 
-# === DEBUG FLAG ===
-DEBUG_MODE = True  # Set to False to skip alignment diagnostics
+# === STEP 6: Define Parameters ===
+PARAMS = {
+    # Backtest period
+    'start_date': "2023-01-23",
+    'end_date': "2023-01-27",
+    
+    # Strategy parameters
+    'stretch_threshold': 0.003,  # 0.3%
+    'reclaim_threshold': 0.002,  # 0.2% - should always be less than stretch threshold
+    'cooldown_period_seconds': 60,  # Cooldown period in seconds
+    
+    # Time windows
+    'entry_start_time': time(9, 30),
+    'entry_end_time': time(16, 0),
+    
+    # Instrument selection
+    'ticker': 'SPY',
+    'option_type': 'call',  # 'call' or 'put'
+    
+    # Data quality thresholds - for error checking
+    'min_spy_data_rows': 1000,  # Minimum acceptable rows for SPY data
+    'min_option_chain_rows': 10,  # Minimum acceptable rows for option chain data
+    'min_option_price_rows': 100,  # Minimum acceptable rows for option price data
+    'timestamp_mismatch_threshold': 0,  # Maximum allowable timestamp mismatches
+    
+    # Debug settings
+    'debug_mode': True,  # Enable/disable debug outputs
+}
 
-start_date = "2023-01-23"
-end_date = "2023-01-27"
+# Use params for variables that were previously global
+DEBUG_MODE = PARAMS['debug_mode']
+start_date = PARAMS['start_date']
+end_date = PARAMS['end_date']
 business_days = pd.date_range(start=start_date, end=end_date, freq="B")
-ticker = "SPY"
+ticker = PARAMS['ticker']
 
 # === STEP 4: Caching paths ===
 CACHE_DIR = "/content/drive/MyDrive/polygon_cache"
@@ -29,14 +57,6 @@ OPTION_DIR = os.path.join(CACHE_DIR, "option")
 
 for d in [SPY_DIR, CHAIN_DIR, OPTION_DIR]:
     os.makedirs(d, exist_ok=True)
-
-# === STEP 6: Define Parameters ===
-PARAMS = {
-    'stretch_threshold': 0.003,  # 0.3%
-    'entry_start_time': time(9, 30),
-    'entry_end_time': time(16, 0),
-    'cooldown_period_seconds': 60,  # Cooldown period in seconds
-}
 
 # === STEP 7: Stretch Signal Detection ===
 def detect_stretch_signal(df_rth_filled, params):
@@ -106,10 +126,10 @@ def detect_stretch_signal(df_rth_filled, params):
         print(f"ℹ️ Time filtering: {signals_dropped} signals were outside the {entry_start}-{entry_end} trading window")
         print(f"ℹ️ Signals before time filter: {signals_before_time_filter}, after: {signals_after_time_filter}")
 
-    if DEBUG_MODE:
-        print("\n🧹 Post-filter signal integrity check:")
-        print(f"  NaT timestamps: {signals['ts_raw'].isna().sum()}")
-        print(f"  Time ordered: {signals['ts_raw'].is_monotonic_increasing}")
+#    if DEBUG_MODE:
+#        print("\n🧹 Post-filter signal integrity check:")
+#        print(f"  NaT timestamps: {signals['ts_raw'].isna().sum()}")
+#        print(f"  Time ordered: {signals['ts_raw'].is_monotonic_increasing}")
 
         # Log the first 5 stretch labels for "above" and "below"
 #    if DEBUG_MODE:
@@ -139,12 +159,12 @@ def detect_stretch_signal(df_rth_filled, params):
     processed_signals_df = pd.DataFrame(filtered_signals)
     
     # Additional diagnostic for cooldown filtering
-    if DEBUG_MODE:
-        signals_after_cooldown = len(processed_signals_df)
-        signals_dropped_by_cooldown = len(signals) - signals_after_cooldown
-        if signals_dropped_by_cooldown > 0:
-            print(f"ℹ️ Cooldown filtering: {signals_dropped_by_cooldown} signals were dropped due to cooldown period")
-            print(f"ℹ️ Signals before cooldown: {len(signals)}, after: {signals_after_cooldown}")
+#    if DEBUG_MODE:
+#        signals_after_cooldown = len(processed_signals_df)
+#        signals_dropped_by_cooldown = len(signals) - signals_after_cooldown
+#        if signals_dropped_by_cooldown > 0:
+#            print(f"ℹ️ Cooldown filtering: {signals_dropped_by_cooldown} signals were dropped due to cooldown period")
+#            print(f"ℹ️ Signals before cooldown: {len(signals)}, after: {signals_after_cooldown}")
 
 #    if DEBUG_MODE:
         # Log the first 5 processed 'above' stretch signals
@@ -163,7 +183,7 @@ def detect_partial_reclaims(df_rth_filled, stretch_signals, params):
     For each stretch signal, detect if a partial reclaim toward VWAP occurs within the cooldown window.
     Returns stretch signals with reclaim metadata.
     """
-    reclaim_threshold = 0.002  # 0.2%
+    reclaim_threshold = params['reclaim_threshold']
     cooldown_seconds = params['cooldown_period_seconds']
     enriched_signals = []
 
@@ -222,7 +242,7 @@ for date_obj in business_days:
         if os.path.exists(spy_path):
             df_rth_filled = pd.read_pickle(spy_path)
             print("📂 SPY data loaded from cache.")
-            if len(df_rth_filled) < 1000:
+            if len(df_rth_filled) < PARAMS['min_spy_data_rows']:
                 print(f"⚠️ SPY data for {date} is unusually short with only {len(df_rth_filled)} rows. This may indicate incomplete data.")
         else:
             base_url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/second/{date}/{date}"
@@ -291,7 +311,7 @@ for date_obj in business_days:
                 if not df_rth_filled[column].apply(lambda x: pd.notna(x) and np.isfinite(x)).all():
                     raise ValueError(f"❌ Non-finite values (inf/-inf) in {column} — check data integrity")
 
-            if len(df_rth_filled) < 1000:
+            if len(df_rth_filled) < PARAMS['min_spy_data_rows']:
                 print(f"⚠️ SPY data for {date} is unusually short with only {len(df_rth_filled)} rows after pulling from API. This may indicate incomplete data.")
 
             df_rth_filled.to_pickle(spy_path)
@@ -302,7 +322,7 @@ for date_obj in business_days:
         if os.path.exists(chain_path):
             df_chain = pd.read_pickle(chain_path)
             print("📂 Option chain loaded from cache.")
-            if len(df_chain) < 10:
+            if len(df_chain) < PARAMS['min_option_chain_rows']:
                 print(f"⚠️ Option chain data for {date} is unusually short with only {len(df_chain)} rows. This may indicate incomplete data.")
         else:
             def fetch_chain(contract_type):
@@ -330,7 +350,7 @@ for date_obj in business_days:
             df_chain["ticker_clean"] = df_chain["ticker"].str.replace("O:", "", regex=False)
 
             # Check for unusually short data before caching
-            if len(df_chain) < 10:
+            if len(df_chain) < PARAMS['min_option_chain_rows']:
                 print(f"⚠️ Option chain data for {date} is unusually short with only {len(df_chain)} rows after pulling from API. This may indicate incomplete data.")
 
             df_chain.to_pickle(chain_path)
@@ -342,11 +362,11 @@ for date_obj in business_days:
 
         # === STEP 5c: Select ATM contract ===
         spy_open_price = df_rth_filled["close"].iloc[0]
-        df_calls_only = df_chain[df_chain["option_type"] == "call"].copy()
+        df_calls_only = df_chain[df_chain["option_type"] == PARAMS['option_type']].copy()
 
         # Check if we have any call options available
         if df_calls_only.empty:
-            error_msg = f"❌ No call options available for {date} — cannot select ATM contract"
+            error_msg = f"❌ No {PARAMS['option_type']} options available for {date} — cannot select ATM contract"
             print(error_msg)
             raise ValueError(error_msg)
 
@@ -367,11 +387,11 @@ for date_obj in business_days:
         df_calls_only["abs_diff"] = (df_calls_only["strike_price"] - spy_open_price).abs()
 
         # Log the closest strikes for debugging (optional)
-        if DEBUG_MODE:
-            closest_strikes = df_calls_only.sort_values("abs_diff").head(3)
-            print(f"🎯 Top 3 closest strikes to {spy_open_price}:")
-            for _, row in closest_strikes.iterrows():
-                print(f"  Strike: {row['strike_price']}, Diff: {row['abs_diff']:.4f}")
+#        if DEBUG_MODE:
+#            closest_strikes = df_calls_only.sort_values("abs_diff").head(3)
+#            print(f"🎯 Top 3 closest strikes to {spy_open_price}:")
+#            for _, row in closest_strikes.iterrows():
+#                print(f"  Strike: {row['strike_price']}, Diff: {row['abs_diff']:.4f}")
 
         # Sort and select the closest strike
         atm_call = df_calls_only.sort_values("abs_diff").iloc[0]
@@ -383,15 +403,15 @@ for date_obj in business_days:
             print(error_msg)
             raise ValueError(error_msg)
 
-        if DEBUG_MODE:
-            print(f"✅ Selected ATM call: {option_ticker} with strike {atm_call['strike_price']}")
+#        if DEBUG_MODE:
+#            print(f"✅ Selected ATM call: {option_ticker} with strike {atm_call['strike_price']}")
 
         # === STEP 5d: Load or pull option price data ===
         option_path = os.path.join(OPTION_DIR, f"{date}_{option_ticker.replace(':', '')}.pkl")
         if os.path.exists(option_path):
             df_option_rth = pd.read_pickle(option_path)
             print("📂 Option price data loaded from cache.")
-            if len(df_option_rth) < 100:
+            if len(df_option_rth) < PARAMS['min_option_price_rows']:
                 print(f"⚠️ Option price data for {option_ticker} on {date} is unusually short with only {len(df_option_rth)} rows. This may indicate incomplete data.")
         else:
             option_url = (
@@ -418,7 +438,7 @@ for date_obj in business_days:
                 (df_option["timestamp"].dt.time <= time(16, 0))
             ].sort_values("timestamp").reset_index(drop=True)
 
-            if len(df_option_rth) < 100:
+            if len(df_option_rth) < PARAMS['min_option_price_rows']:
                 print(f"⚠️ Option price data for {option_ticker} on {date} is unusually short with only {len(df_option_rth)} rows after pulling from API. This may indicate incomplete data.")
 
             df_option_rth.to_pickle(option_path)
@@ -429,7 +449,7 @@ for date_obj in business_days:
         df_option_aligned.rename(columns={"index": "ts_raw"}, inplace=True)
 
         # Define a threshold for allowable mismatches
-        mismatch_threshold = 0  # This can be adjusted based on your tolerance
+        mismatch_threshold = PARAMS['timestamp_mismatch_threshold']
 
         # Check for timestamp mismatches
         mismatch_count = (~df_option_aligned["ts_raw"].eq(df_rth_filled["ts_raw"])).sum()
@@ -440,14 +460,14 @@ for date_obj in business_days:
             raise Exception(f"⛔ ERROR: Timestamp mismatch in {mismatch_count} rows exceeds the threshold of {mismatch_threshold}. Data alignment issue detected.")
 
         if DEBUG_MODE:
-            print(f"\n⏱️ SPY rows: {len(df_rth_filled)}")
-            print(f"⏱️ OPT rows: {len(df_option_aligned)}")
+#            print(f"\n⏱️ SPY rows: {len(df_rth_filled)}")
+#            print(f"⏱️ OPT rows: {len(df_option_aligned)}")
 
             def hash_timestamps(df):
                 return hashlib.md5("".join(df["ts_raw"].astype(str)).encode()).hexdigest()
 
-            print(f"\n🔐 SPY hash:  {hash_timestamps(df_rth_filled)}")
-            print(f"🔐 OPT hash:  {hash_timestamps(df_option_aligned)}")
+#            print(f"\n🔐 SPY hash:  {hash_timestamps(df_rth_filled)}")
+#            print(f"🔐 OPT hash:  {hash_timestamps(df_option_aligned)}")
 
         if mismatch_count > 0:
             print(f"⚠️ Timestamp mismatch in {mismatch_count} rows — skipping.")
