@@ -30,7 +30,41 @@ OPTION_DIR = os.path.join(CACHE_DIR, "option")
 for d in [SPY_DIR, CHAIN_DIR, OPTION_DIR]:
     os.makedirs(d, exist_ok=True)
 
-# === STEP 5: Backtest loop ===
+# === STEP 6: Define Parameters ===
+PARAMS = {
+    'stretch_threshold': 0.003  # 0.3%
+}
+
+# === STEP 7: Stretch Signal Detection ===
+def detect_stretch_signal(df_rth_filled, params):
+    """
+    Detects stretch signals when SPY price moves beyond VWAP by ±0.3%.
+
+    Parameters:
+    - df_rth_filled: DataFrame containing SPY price and VWAP data.
+    - params: Dictionary of parameters including stretch threshold.
+
+    Returns:
+    - signals: DataFrame with stretch signals.
+    """
+    stretch_threshold = params['stretch_threshold']
+    df_rth_filled['stretch_signal'] = (
+        (df_rth_filled['close'] > df_rth_filled['vwap_running'] * (1 + stretch_threshold)) |
+        (df_rth_filled['close'] < df_rth_filled['vwap_running'] * (1 - stretch_threshold))
+    )
+    df_rth_filled['percentage_stretch'] = (
+        (df_rth_filled['close'] - df_rth_filled['vwap_running']) / df_rth_filled['vwap_running']
+    ) * 100
+    signals = df_rth_filled[df_rth_filled['stretch_signal']].copy()
+    
+    # Log the first 5 stretch signals
+#    if DEBUG_MODE:
+#        print("\nFirst 5 Stretch Signals:")
+#        print(signals[['timestamp', 'close', 'vwap_running', 'percentage_stretch']].head())
+    
+    return signals
+
+# === STEP 8: Backtest loop ===
 for date_obj in business_days:
     date = date_obj.strftime("%Y-%m-%d")
     print(f"\n📅 Processing {date}...")
@@ -204,7 +238,10 @@ for date_obj in business_days:
 
         print(f"✅ {date} — Data loaded and aligned successfully.")
 
-        # 🔧 (Insert strategy logic here)
+        # === Insert strategy logic here ===
+        stretch_signals = detect_stretch_signal(df_rth_filled, PARAMS)
+        if DEBUG_MODE:
+            print(f"🔍 Detected {len(stretch_signals)} stretch signals on {date}.")
 
     except Exception as e:
         print(f"❌ {date} — Error: {str(e)}")
