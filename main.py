@@ -1842,7 +1842,6 @@ if all_contracts:
         display_columns = ['original_signal_time', 'entry_time', 'option_type', 'strike_price', 
                        'entry_option_price', 'entry_option_price_slipped',
                        'original_exit_time', 'exit_time', 'exit_price', 'exit_price_slipped',
-                       'pnl_percent', 'pnl_percent_slipped',
                        'transaction_cost_total', 'pnl_dollars', 'pnl_dollars_with_fees', 'pnl_dollars_slipped_with_fees',
                        'exit_reason', 'trade_duration_seconds']
     
