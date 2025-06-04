@@ -93,9 +93,6 @@ for date_obj in business_days:
             df_rth_filled["cum_pv"] = (df_rth_filled["vw"] * df_rth_filled["volume"]).cumsum()
             df_rth_filled["cum_vol"] = df_rth_filled["volume"].cumsum()
             df_rth_filled["vwap_running"] = df_rth_filled["cum_pv"] / df_rth_filled["cum_vol"]
-            # === VWAP sanity check ===
-            print("\n📊 Sample VWAP values (first 5 rows):")
-            print(df_rth_filled[["timestamp", "close", "vw", "vwap_running"]].head())
 
             if df_rth_filled["vwap_running"].isna().any():
                 raise ValueError("❌ NaNs detected in vwap_running — check data or ffill logic")
@@ -192,13 +189,6 @@ for date_obj in business_days:
         print(f"🧪 Timestamp mismatches: {mismatch_count}")
 
         if DEBUG_MODE:
-            print("\n🔎 First 5 timestamps:")
-            print("SPY:   ", df_rth_filled["ts_raw"].head(5).tolist())
-            print("OPT:   ", df_option_aligned["ts_raw"].head(5).tolist())
-            print("\n🔎 Last 5 timestamps:")
-            print("SPY:   ", df_rth_filled["ts_raw"].tail(5).tolist())
-            print("OPT:   ", df_option_aligned["ts_raw"].tail(5).tolist())
-
             print(f"\n⏱️ SPY rows: {len(df_rth_filled)}")
             print(f"⏱️ OPT rows: {len(df_option_aligned)}")
 
