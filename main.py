@@ -639,6 +639,10 @@ def process_exits_for_contract(contract, params):
     contract['trade_duration_seconds'] = None
     contract['is_closed'] = False
     
+    # Initialize exit staleness fields
+    contract['exit_price_staleness_seconds'] = None
+    contract['is_exit_price_stale'] = None
+    
     # Get future prices after entry
     future_prices = df_option[df_option['ts_raw'] > entry_time].copy()
     
@@ -668,6 +672,11 @@ def process_exits_for_contract(contract, params):
             continue
         
         try:
+            # Check for price staleness at this potential exit point
+            staleness_threshold = params['price_staleness_threshold_seconds']
+            price_staleness = row['seconds_since_update'] if 'seconds_since_update' in row else 0.0
+            is_price_stale = price_staleness > staleness_threshold
+            
             # Evaluate exit conditions
             should_exit, reason = evaluate_exit_conditions(
                 contract, current_time, current_price, params
@@ -681,11 +690,24 @@ def process_exits_for_contract(contract, params):
                 contract['trade_duration_seconds'] = (current_time - entry_time).total_seconds()
                 contract['is_closed'] = True
                 
+                # Store exit price staleness info
+                contract['exit_price_staleness_seconds'] = price_staleness
+                contract['is_exit_price_stale'] = is_price_stale
+                
+                # Log staleness warning if needed
+                if is_price_stale and params['report_stale_prices']:
+                    entry_date = entry_time.strftime("%Y-%m-%d")
+                    staleness_msg = f"Using stale option price at exit for {contract['ticker']} - {price_staleness:.1f} seconds old"
+                    print(f"⚠️ {staleness_msg}")
+                    track_issue("warnings", "price_staleness", staleness_msg, date=entry_date)
+                
                 if params['debug_mode']:
                     pnl_str = f"{contract['pnl_percent']:.2f}%" if contract['pnl_percent'] is not None else "N/A"
                     duration_str = f"{contract['trade_duration_seconds']:.0f}s" if contract['trade_duration_seconds'] is not None else "N/A"
                     print(f"🚪 Exit: {contract['ticker']} at {current_time.strftime('%H:%M:%S')} - Reason: {reason}")
                     print(f"   Entry: ${contract['entry_option_price']:.2f}, Exit: ${current_price:.2f}, P&L: {pnl_str}, Duration: {duration_str}")
+                    if is_price_stale:
+                        print(f"   ⚠️ Exit price is stale: {price_staleness:.1f} seconds old")
                 
                 break
         except Exception as e:
@@ -711,6 +733,11 @@ def process_exits_for_contract(contract, params):
             last_time = last_row['ts_raw']
             last_price = last_row['vwap'] if 'vwap' in last_row and pd.notna(last_row['vwap']) else last_row['close']
             
+            # Check staleness for forced exit
+            staleness_threshold = params['price_staleness_threshold_seconds']
+            price_staleness = last_row['seconds_since_update'] if 'seconds_since_update' in last_row else 0.0
+            is_price_stale = price_staleness > staleness_threshold
+            
             contract['exit_time'] = last_time
             contract['exit_price'] = last_price
             contract['exit_reason'] = "end_of_data"
@@ -718,6 +745,17 @@ def process_exits_for_contract(contract, params):
                 contract['pnl_percent'] = (last_price - contract['entry_option_price']) / contract['entry_option_price'] * 100
             contract['trade_duration_seconds'] = (last_time - entry_time).total_seconds()
             contract['is_closed'] = True
+            
+            # Store exit price staleness info
+            contract['exit_price_staleness_seconds'] = price_staleness
+            contract['is_exit_price_stale'] = is_price_stale
+            
+            # Log staleness warning if needed
+            if is_price_stale and params['report_stale_prices']:
+                entry_date = entry_time.strftime("%Y-%m-%d")
+                staleness_msg = f"Using stale option price at forced exit for {contract['ticker']} - {price_staleness:.1f} seconds old"
+                print(f"⚠️ {staleness_msg}")
+                track_issue("warnings", "price_staleness", staleness_msg, date=entry_date)
             
             # Always show critical warning and track the issue
             print(f"❌ Forced exit at end of available data: {contract['ticker']}")
@@ -1244,6 +1282,31 @@ if all_contracts:
         print(f"  Stale price entries: {stale_count} ({(stale_count/len(contracts_df))*100:.1f}%)")
         print(f"  Average staleness: {avg_staleness:.2f} seconds")
         print(f"  Maximum staleness: {max_staleness:.2f} seconds")
+        
+        # Add exit price staleness statistics if those fields exist
+        if 'is_exit_price_stale' in contracts_df.columns and 'exit_price_staleness_seconds' in contracts_df.columns:
+            # Filter to only include rows with valid exit staleness data
+            valid_exit_data = contracts_df.dropna(subset=['is_exit_price_stale', 'exit_price_staleness_seconds'])
+            
+            if not valid_exit_data.empty:
+                exit_stale_count = len(valid_exit_data[valid_exit_data['is_exit_price_stale'] == True])
+                exit_fresh_count = len(valid_exit_data) - exit_stale_count
+                exit_avg_staleness = valid_exit_data['exit_price_staleness_seconds'].mean()
+                exit_max_staleness = valid_exit_data['exit_price_staleness_seconds'].max()
+                
+                print("\n🔍 Exit Price Staleness Statistics:")
+                print(f"  Fresh price exits: {exit_fresh_count} ({(exit_fresh_count/len(valid_exit_data))*100:.1f}%)")
+                print(f"  Stale price exits: {exit_stale_count} ({(exit_stale_count/len(valid_exit_data))*100:.1f}%)")
+                print(f"  Average exit staleness: {exit_avg_staleness:.2f} seconds")
+                print(f"  Maximum exit staleness: {exit_max_staleness:.2f} seconds")
+                
+                # Compare entry vs exit staleness
+                if stale_count > 0 or exit_stale_count > 0:
+                    print("\n🔍 Entry vs Exit Staleness Comparison:")
+                    print(f"  Stale entries: {stale_count}/{len(contracts_df)} ({(stale_count/len(contracts_df))*100:.1f}%)")
+                    print(f"  Stale exits: {exit_stale_count}/{len(valid_exit_data)} ({(exit_stale_count/len(valid_exit_data))*100:.1f}%)")
+                    print(f"  Average entry staleness: {avg_staleness:.2f} seconds")
+                    print(f"  Average exit staleness: {exit_avg_staleness:.2f} seconds")
     
     # Add exit reason distribution
     if 'exit_reason' in contracts_df.columns:
@@ -1322,7 +1385,8 @@ if all_contracts:
     # Sample of contracts with entry and exit details
     print("\n🔍 Sample of trades with P&L:")
     display_columns = ['entry_time', 'option_type', 'strike_price', 'entry_option_price', 
-                       'exit_price', 'exit_reason', 'pnl_percent', 'trade_duration_seconds']
+                       'exit_price', 'exit_reason', 'pnl_percent', 'trade_duration_seconds',
+                       'price_staleness_seconds', 'exit_price_staleness_seconds']
     
     # Only include columns that exist
     existing_columns = [col for col in display_columns if col in contracts_df.columns]
