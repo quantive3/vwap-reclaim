@@ -1240,11 +1240,11 @@ if all_contracts:
     
     # === SLIPPAGE ADJUSTMENT (Post-Processing) ===
     # Apply slippage without modifying original trade decisions
-    SLIPPAGE_AMOUNT = 0.03  # $0.03 fixed slippage amount
+    SLIPPAGE_PERCENT = 0.01  # 1% slippage
     
-    # Create slippage-adjusted entry and exit prices
-    contracts_df['entry_option_price_slipped'] = contracts_df['entry_option_price'] + SLIPPAGE_AMOUNT
-    contracts_df['exit_price_slipped'] = contracts_df['exit_price'] - SLIPPAGE_AMOUNT
+    # Create slippage-adjusted entry and exit prices (worse entries, worse exits)
+    contracts_df['entry_option_price_slipped'] = contracts_df['entry_option_price'] * (1 + SLIPPAGE_PERCENT)
+    contracts_df['exit_price_slipped'] = contracts_df['exit_price'] * (1 - SLIPPAGE_PERCENT)
     
     # Recalculate P&L with slippage
     contracts_df['pnl_percent_slipped'] = ((contracts_df['exit_price_slipped'] - contracts_df['entry_option_price_slipped']) / 
