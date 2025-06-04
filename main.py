@@ -37,6 +37,8 @@ PARAMS = {
     'min_option_chain_rows': 10,  # Minimum acceptable rows for option chain data
     'min_option_price_rows': 10000,  # Minimum acceptable rows for option price data
     'timestamp_mismatch_threshold': 0,  # Maximum allowable timestamp mismatches
+    'price_staleness_threshold_seconds': 10,  # Maximum allowable staleness in seconds for option prices
+    'report_stale_prices': True,  # Enable/disable reporting of stale prices
     
     # Debug settings
     'debug_mode': True,  # Enable/disable debug outputs
@@ -515,6 +517,9 @@ for date_obj in business_days:
                         (df_option["timestamp"].dt.time >= time(9, 30)) &
                         (df_option["timestamp"].dt.time <= time(16, 0))
                     ].sort_values("timestamp").reset_index(drop=True)
+                    
+                    # Mark rows with actual data (before forward filling)
+                    df_option_rth['is_actual_data'] = True
 
                     if len(df_option_rth) < PARAMS['min_option_price_rows']:
                         print(f"⚠️ Option price data for {option_ticker} on {date} is unusually short with only {len(df_option_rth)} rows after pulling from API. This may indicate incomplete data.")
@@ -523,8 +528,35 @@ for date_obj in business_days:
                     print("💾 Option price data pulled and cached.")
                 
                 # === STEP 5e: Timestamp alignment check ===
-                df_option_aligned = df_option_rth.set_index("timestamp").reindex(df_rth_filled["ts_raw"]).ffill().reset_index()
+                # Add is_actual_data column if loading from cache and column doesn't exist
+                if 'is_actual_data' not in df_option_rth.columns:
+                    df_option_rth['is_actual_data'] = True
+                
+                # Create a copy of the actual data flags before alignment
+                actual_data_timestamps = df_option_rth[df_option_rth['is_actual_data']]['timestamp'].copy()
+                
+                # Align and forward fill the option data using the recommended pattern
+                df_option_aligned = df_option_rth.set_index("timestamp").reindex(df_rth_filled["ts_raw"])
+                df_option_aligned = df_option_aligned.ffill().infer_objects(copy=False).reset_index()
                 df_option_aligned.rename(columns={"index": "ts_raw"}, inplace=True)
+                
+                # Initialize staleness tracking
+                df_option_aligned['is_actual_data'] = df_option_aligned['ts_raw'].isin(actual_data_timestamps)
+                # Initialize as float64 type to properly handle inf values
+                df_option_aligned['seconds_since_update'] = pd.Series(0.0, index=df_option_aligned.index, dtype='float64')
+                
+                # Calculate staleness (seconds since last actual data point)
+                last_actual_ts = None
+                for idx, row in df_option_aligned.iterrows():
+                    if row['is_actual_data']:
+                        last_actual_ts = row['ts_raw']
+                        # No need to set 0.0 since already initialized
+                    elif last_actual_ts is not None:
+                        seconds_diff = (row['ts_raw'] - last_actual_ts).total_seconds()
+                        df_option_aligned.at[idx, 'seconds_since_update'] = seconds_diff
+                    else:
+                        # Edge case: No actual data points before this timestamp
+                        df_option_aligned.at[idx, 'seconds_since_update'] = float('inf')  # Mark as infinitely stale
                 
                 # Define a threshold for allowable mismatches
                 mismatch_threshold = PARAMS['timestamp_mismatch_threshold']
@@ -548,12 +580,22 @@ for date_obj in business_days:
                 # Extract entry price for the option
                 option_entry_price = option_row['vwap'].iloc[0]
                 
+                # Check price staleness at entry
+                staleness_threshold = PARAMS['price_staleness_threshold_seconds']
+                price_staleness = option_row['seconds_since_update'].iloc[0]
+                is_price_stale = price_staleness > staleness_threshold
+                
+                if is_price_stale and PARAMS['report_stale_prices']:
+                    print(f"⚠️ Using stale option price at entry - {price_staleness:.1f} seconds old")
+                
                 # Store contract with complete entry details
                 contract_with_entry = {
                     **selected_contract,
                     'entry_time': entry_time,
                     'entry_spy_price': spy_price_at_entry,
                     'entry_option_price': option_entry_price,
+                    'price_staleness_seconds': price_staleness,
+                    'is_price_stale': is_price_stale,
                     'df_option_aligned': df_option_aligned,  # Save aligned option data for later use
                     'entry_signal': entry_signal.to_dict()
                 }
@@ -628,6 +670,23 @@ if all_contracts:
     avg_diff = contracts_df['abs_diff'].mean()
     print(f"  Average distance from ATM: {avg_diff:.4f}")
     
+    # Add price staleness statistics if enabled
+    if PARAMS['report_stale_prices'] and 'is_price_stale' in contracts_df.columns:
+        stale_count = len(contracts_df[contracts_df['is_price_stale'] == True])
+        fresh_count = len(contracts_df) - stale_count
+        avg_staleness = contracts_df['price_staleness_seconds'].mean()
+        max_staleness = contracts_df['price_staleness_seconds'].max()
+        
+        print("\n🔍 Price Staleness Statistics:")
+        print(f"  Fresh price entries: {fresh_count} ({(fresh_count/len(contracts_df))*100:.1f}%)")
+        print(f"  Stale price entries: {stale_count} ({(stale_count/len(contracts_df))*100:.1f}%)")
+        print(f"  Average staleness: {avg_staleness:.2f} seconds")
+        print(f"  Maximum staleness: {max_staleness:.2f} seconds")
+    
     # Sample of contracts
     print("\n🔍 Sample of selected option contracts:")
-    print(contracts_df[['entry_time', 'option_type', 'strike_price', 'entry_spy_price', 'entry_option_price']].head())
+    if PARAMS['report_stale_prices'] and 'is_price_stale' in contracts_df.columns:
+        print(contracts_df[['entry_time', 'option_type', 'strike_price', 'entry_spy_price', 
+                          'entry_option_price', 'price_staleness_seconds', 'is_price_stale']].head())
+    else:
+        print(contracts_df[['entry_time', 'option_type', 'strike_price', 'entry_spy_price', 'entry_option_price']].head())
