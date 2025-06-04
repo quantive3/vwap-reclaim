@@ -30,6 +30,12 @@ PARAMS = {
     'entry_start_time': time(9, 30),
     'entry_end_time': time(16, 0),
     
+    # Exit conditions
+    'take_profit_percent': 25,     # Take profit at 25% gain
+    'stop_loss_percent': -50,      # Stop loss at 50% loss
+    'max_trade_duration_seconds': 300,  # Exit after 300 seconds (5 minutes)
+    'end_of_day_exit_time': time(15, 55),  # 3:55 PM exit cutoff
+    
     # Instrument selection
     'ticker': 'SPY',
     'require_same_day_expiry': True,  # Whether to strictly require same-day expiry options
@@ -74,6 +80,11 @@ issue_tracker = {
     "errors": {
         "missing_option_price_data": 0,
         "api_connection_failures": 0,
+        "missing_exit_data": 0,     # Added for tracking missing option data for exits
+        "no_future_price_data": 0,  # Added for tracking missing future price data
+        "forced_exit_end_of_data": 0,  # Added for tracking forced exits
+        "exit_evaluation_error": 0,  # Added for tracking errors during exit evaluation
+        "forced_exit_error": 0,     # Added for tracking errors during forced exit
         "other": 0,
         "details": []  # Store details for uncommon errors
     },
@@ -528,6 +539,196 @@ def select_option_contract(entry_signal, df_chain, spy_price, params):
     
     return contract_details
 
+# === STEP 7d: Exit Logic ===
+def evaluate_exit_conditions(contract, current_time, current_price, params):
+    """
+    Evaluate if exit conditions are met for a given contract.
+    
+    Parameters:
+    - contract: The contract data dictionary
+    - current_time: Current timestamp being evaluated
+    - current_price: Current option price
+    - params: Strategy parameters
+    
+    Returns:
+    - (should_exit, exit_reason) tuple
+    """
+    entry_time = contract['entry_time']
+    entry_price = contract['entry_option_price']
+    
+    # Calculate P&L percentage
+    pnl_percent = (current_price - entry_price) / entry_price * 100
+    
+    # Calculate time elapsed
+    elapsed_seconds = (current_time - entry_time).total_seconds()
+    
+    # Check end of day cutoff time
+    end_of_day_exit_time = params.get('end_of_day_exit_time', time(15, 55))
+    if current_time.time() >= end_of_day_exit_time:
+        return True, "end_of_day"
+    
+    # Check take profit
+    take_profit_level = params.get('take_profit_percent', 25)
+    if pnl_percent >= take_profit_level:
+        return True, "take_profit"
+        
+    # Check stop loss
+    stop_loss_level = params.get('stop_loss_percent', -50)
+    if pnl_percent <= stop_loss_level:
+        return True, "stop_loss"
+        
+    # Check time-based exit
+    max_duration = params.get('max_trade_duration_seconds', 300)
+    if elapsed_seconds >= max_duration:
+        return True, "time_exit"
+        
+    return False, None
+
+def process_exits_for_contract(contract, params):
+    """
+    Process exit conditions for a single contract.
+    
+    Parameters:
+    - contract: Contract data dictionary including df_option_aligned
+    - params: Strategy parameters
+    
+    Returns:
+    - Updated contract with exit details
+    """
+    if 'df_option_aligned' not in contract:
+        # Always show critical warning and track the issue
+        print(f"⚠️ No option data available for exit processing for {contract['ticker']}")
+        
+        # Get entry date for tracking if available
+        entry_date = contract['entry_time'].strftime("%Y-%m-%d") if 'entry_time' in contract else None
+        
+        # Track this issue
+        track_issue("errors", "missing_exit_data", 
+                   f"No option data for exit processing: {contract['ticker']}", 
+                   level="error", date=entry_date)
+        
+        return contract
+    
+    # Get option data aligned with timestamps
+    df_option = contract['df_option_aligned']
+    entry_time = contract['entry_time']
+    
+    # Initialize exit details if not already there
+    contract['exit_time'] = None
+    contract['exit_price'] = None
+    contract['exit_reason'] = None
+    contract['pnl_percent'] = None
+    contract['trade_duration_seconds'] = None
+    contract['is_closed'] = False
+    
+    # Get future prices after entry
+    future_prices = df_option[df_option['ts_raw'] > entry_time].copy()
+    
+    if future_prices.empty:
+        # Always show critical warning and track the issue
+        print(f"⚠️ No future price data available after entry at {entry_time} for {contract['ticker']}")
+        
+        # Get entry date for tracking
+        entry_date = entry_time.strftime("%Y-%m-%d")
+        
+        # Track this issue
+        track_issue("errors", "no_future_price_data", 
+                   f"No future price data after entry: {contract['ticker']} at {entry_time}", 
+                   level="error", date=entry_date)
+        
+        contract['exit_reason'] = "no_future_data"
+        return contract
+    
+    # Check each future timestamp for exit conditions
+    for idx, row in future_prices.iterrows():
+        current_time = row['ts_raw']
+        # Use VWAP for consistent pricing with entry
+        current_price = row['vwap'] if 'vwap' in row and pd.notna(row['vwap']) else row['close']
+        
+        # Skip if price is NaN
+        if pd.isna(current_price):
+            continue
+        
+        try:
+            # Evaluate exit conditions
+            should_exit, reason = evaluate_exit_conditions(
+                contract, current_time, current_price, params
+            )
+            
+            if should_exit:
+                contract['exit_time'] = current_time
+                contract['exit_price'] = current_price
+                contract['exit_reason'] = reason
+                contract['pnl_percent'] = (current_price - contract['entry_option_price']) / contract['entry_option_price'] * 100
+                contract['trade_duration_seconds'] = (current_time - entry_time).total_seconds()
+                contract['is_closed'] = True
+                
+                if params['debug_mode']:
+                    pnl_str = f"{contract['pnl_percent']:.2f}%" if contract['pnl_percent'] is not None else "N/A"
+                    duration_str = f"{contract['trade_duration_seconds']:.0f}s" if contract['trade_duration_seconds'] is not None else "N/A"
+                    print(f"🚪 Exit: {contract['ticker']} at {current_time.strftime('%H:%M:%S')} - Reason: {reason}")
+                    print(f"   Entry: ${contract['entry_option_price']:.2f}, Exit: ${current_price:.2f}, P&L: {pnl_str}, Duration: {duration_str}")
+                
+                break
+        except Exception as e:
+            # Log the error and track it
+            error_msg = f"Error evaluating exit for {contract['ticker']}: {str(e)}"
+            print(f"❌ {error_msg}")
+            
+            # Get entry date for tracking
+            entry_date = entry_time.strftime("%Y-%m-%d")
+            
+            # Track the error
+            track_issue("errors", "exit_evaluation_error", 
+                      error_msg, level="error", date=entry_date)
+            
+            # Mark this trade with an error, but still allow processing to continue
+            contract['exit_reason'] = "exit_evaluation_error"
+            continue
+    
+    # Force exit for any trades not closed (data missing or other issue)
+    if not contract['is_closed']:
+        try:
+            last_row = future_prices.iloc[-1]
+            last_time = last_row['ts_raw']
+            last_price = last_row['vwap'] if 'vwap' in last_row and pd.notna(last_row['vwap']) else last_row['close']
+            
+            contract['exit_time'] = last_time
+            contract['exit_price'] = last_price
+            contract['exit_reason'] = "end_of_data"
+            if pd.notna(last_price):
+                contract['pnl_percent'] = (last_price - contract['entry_option_price']) / contract['entry_option_price'] * 100
+            contract['trade_duration_seconds'] = (last_time - entry_time).total_seconds()
+            contract['is_closed'] = True
+            
+            # Always show critical warning and track the issue
+            print(f"❌ Forced exit at end of available data: {contract['ticker']}")
+            
+            # Get entry date for tracking
+            entry_date = entry_time.strftime("%Y-%m-%d")
+            
+            # Track this issue as an error, not a warning
+            track_issue("errors", "forced_exit_end_of_data", 
+                      f"Forced exit at end of data: {contract['ticker']} entered at {entry_time}", 
+                      level="error", date=entry_date)
+        except Exception as e:
+            # Log the error and track it
+            error_msg = f"Error during forced exit for {contract['ticker']}: {str(e)}"
+            print(f"❌ {error_msg}")
+            
+            # Get entry date for tracking
+            entry_date = entry_time.strftime("%Y-%m-%d")
+            
+            # Track the error
+            track_issue("errors", "forced_exit_error", 
+                      error_msg, level="error", date=entry_date)
+            
+            # Mark this trade with an error
+            contract['exit_reason'] = "forced_exit_error"
+            contract['is_closed'] = True  # Mark as closed so we don't keep trying to process it
+    
+    return contract
+
 # Initialize a counter for total entry intent signals
 total_entry_intent_signals = 0
 days_processed = 0
@@ -902,13 +1103,21 @@ for date_obj in business_days:
                         'df_option_aligned': df_option_aligned,  # Save aligned option data for later use
                         'entry_signal': entry_signal.to_dict()
                     }
+                    
+                    # Process exits for this contract
+                    contract_with_entry = process_exits_for_contract(contract_with_entry, PARAMS)
+                    
+                    # Memory optimization: Clean up df_option_aligned after exit processing is complete
+                    # This prevents memory accumulation when processing multiple trades within a day
+                    if 'df_option_aligned' in contract_with_entry:
+                        del contract_with_entry['df_option_aligned']
+                    
                     daily_contracts.append(contract_with_entry)
                     
                     # Track option contract selection
                     issue_tracker["opportunities"]["total_options_contracts"] += 1
                     
-                    # Memory optimization: Clear the large DataFrame after use
-                    del df_option_aligned
+                    # Note: No longer deleting df_option_aligned here, will clean up after all processing
         
         # Count the number of entry intent signals for the day
         daily_entry_intent_signals = stretch_signals['entry_intent'].sum()
@@ -942,15 +1151,8 @@ for date_obj in business_days:
         if daily_contracts:
             # For each contract in the daily list, clean up memory and add to master list
             for contract in daily_contracts:
-                # Make a clean copy without the large DataFrame to save memory
-                clean_contract = contract.copy()
-                
-                # Remove the full DataFrame before adding to the master list to save memory
-                if 'df_option_aligned' in clean_contract:
-                    del clean_contract['df_option_aligned']
-                    
                 # Add to our master list of all contracts
-                all_contracts.append(clean_contract)
+                all_contracts.append(contract)
 
     except Exception as e:
         error_msg = f"{date} — Error: {str(e)}"
@@ -1019,13 +1221,55 @@ if all_contracts:
         print(f"  Average staleness: {avg_staleness:.2f} seconds")
         print(f"  Maximum staleness: {max_staleness:.2f} seconds")
     
-    # Sample of contracts
-    print("\n🔍 Sample of selected option contracts:")
-    if PARAMS['report_stale_prices'] and 'is_price_stale' in contracts_df.columns:
-        print(contracts_df[['entry_time', 'option_type', 'strike_price', 'entry_spy_price', 
-                          'entry_option_price', 'price_staleness_seconds', 'is_price_stale']].head(10))
-    else:
-        print(contracts_df[['entry_time', 'option_type', 'strike_price', 'entry_spy_price', 'entry_option_price']].head(10))
+    # Add exit reason distribution
+    if 'exit_reason' in contracts_df.columns:
+        print("\n🚪 Exit Reason Distribution:")
+        exit_counts = contracts_df['exit_reason'].value_counts()
+        for reason, count in exit_counts.items():
+            print(f"  {reason}: {count} ({count/len(contracts_df)*100:.1f}%)")
+    
+    # Add P&L statistics
+    if 'pnl_percent' in contracts_df.columns:
+        # Filter out None/NaN values
+        pnl_data = contracts_df['pnl_percent'].dropna()
+        
+        if not pnl_data.empty:
+            print("\n💰 Profit/Loss Statistics:")
+            print(f"  Average P&L: {pnl_data.mean():.2f}%")
+            print(f"  Median P&L: {pnl_data.median():.2f}%")
+            print(f"  Min P&L: {pnl_data.min():.2f}%")
+            print(f"  Max P&L: {pnl_data.max():.2f}%")
+            
+            # Calculate win rate
+            profitable_trades = (pnl_data > 0).sum()
+            win_rate = profitable_trades / len(pnl_data) * 100
+            print(f"  Win rate: {win_rate:.1f}% ({profitable_trades}/{len(pnl_data)})")
+            
+            # Average P&L by exit reason
+            print("\n  P&L by Exit Reason:")
+            exit_pnl = contracts_df.groupby('exit_reason')['pnl_percent'].agg(['mean', 'count'])
+            for reason, stats in exit_pnl.iterrows():
+                print(f"    {reason}: {stats['mean']:.2f}% avg ({stats['count']} trades)")
+    
+    # Add trade duration statistics
+    if 'trade_duration_seconds' in contracts_df.columns:
+        duration_data = contracts_df['trade_duration_seconds'].dropna()
+        
+        if not duration_data.empty:
+            print("\n⏱️ Trade Duration Statistics:")
+            print(f"  Average duration: {duration_data.mean():.1f} seconds")
+            print(f"  Median duration: {duration_data.median():.1f} seconds")
+            print(f"  Min duration: {duration_data.min():.1f} seconds")
+            print(f"  Max duration: {duration_data.max():.1f} seconds")
+    
+    # Sample of contracts with entry and exit details
+    print("\n🔍 Sample of trades with P&L:")
+    display_columns = ['entry_time', 'option_type', 'strike_price', 'entry_option_price', 
+                       'exit_price', 'exit_reason', 'pnl_percent', 'trade_duration_seconds']
+    
+    # Only include columns that exist
+    existing_columns = [col for col in display_columns if col in contracts_df.columns]
+    print(contracts_df[existing_columns].head(10))
 
 # ==================== GENERATE SUMMARY REPORT ====================
 print("\n" + "=" * 20 + " SUMMARY OF ERRORS + WARNINGS " + "=" * 20)
@@ -1069,6 +1313,11 @@ if issue_tracker['warnings']['other'] > 0 and issue_tracker['warnings']['details
 print("\n❌ ERROR SUMMARY:")
 print(f"  - Missing option price data: {issue_tracker['errors']['missing_option_price_data']}")
 print(f"  - API connection failures: {issue_tracker['errors']['api_connection_failures']}")
+print(f"  - Missing exit data: {issue_tracker['errors']['missing_exit_data']}")
+print(f"  - No future price data: {issue_tracker['errors']['no_future_price_data']}")
+print(f"  - Forced exit at end of data: {issue_tracker['errors']['forced_exit_end_of_data']}")
+print(f"  - Exit evaluation error: {issue_tracker['errors']['exit_evaluation_error']}")
+print(f"  - Forced exit error: {issue_tracker['errors']['forced_exit_error']}")
 print(f"  - Other errors: {issue_tracker['errors']['other']}")
 
 # Show details of 'other' errors if any exist
