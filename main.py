@@ -1294,11 +1294,20 @@ for date_obj in business_days:
                 
                 entry_price = entry_signal['reclaim_price']
                 
-                # Get SPY price at entry
+                # IMPORTANT: Store original signal time and SPY price at signal time (before latency)
+                original_signal_time = entry_time  # entry_time is reclaim_ts at this point
+                spy_price_at_signal = df_rth_filled[df_rth_filled['ts_raw'] == original_signal_time]['close'].iloc[0]
+                
+                # Select appropriate option contract using SPY price at SIGNAL time
+                # CHANGED: Using SPY price at signal time (not execution time) for contract selection
+                # This prevents look-ahead bias by ensuring we only use information available at signal time
+                # to decide which option contract to trade
+                selected_contract = select_option_contract(entry_signal, df_chain, spy_price_at_signal, PARAMS)
+                
+                # Get SPY price at entry for logging/reporting purposes (after latency will be applied)
                 spy_price_at_entry = df_rth_filled[df_rth_filled['ts_raw'] == entry_time]['close'].iloc[0]
                 
-                # Select appropriate option contract
-                selected_contract = select_option_contract(entry_signal, df_chain, spy_price_at_entry, PARAMS)
+                # We'll add the look-ahead bias verification log after latency is applied
                 
                 if selected_contract:
                     # Now we need to load the option price data for the selected contract
@@ -1428,9 +1437,6 @@ for date_obj in business_days:
                         issue_tracker["opportunities"]["failed_entries_data_issues"] += 1
                         continue
                     
-                    # Store original signal time before applying latency
-                    original_signal_time = entry_time
-                    
                     # Capture the original price at original timestamp before applying latency
                     original_option_row = df_option_aligned[df_option_aligned['ts_raw'] == original_signal_time]
                     original_price = None
@@ -1451,6 +1457,9 @@ for date_obj in business_days:
                             option_entry_price = latency_result['delayed_price']
                             option_row = df_option_aligned[df_option_aligned['ts_raw'] == entry_time]
                             
+                            # Update spy_price_at_entry after latency applied
+                            spy_price_at_entry = df_rth_filled[df_rth_filled['ts_raw'] == entry_time]['close'].iloc[0]
+                            
                             # Check if we had to use close price instead of VWAP in the latency result
                             if 'vwap' in latency_result['delayed_row'] and pd.isna(latency_result['delayed_row']['vwap']):
                                 # Log the fallback to close price
@@ -1460,6 +1469,12 @@ for date_obj in business_days:
                                 track_issue("warnings", "vwap_fallback_to_close", fallback_msg, date=date)
                             
                             if DEBUG_MODE:
+                                # Log look-ahead bias fix verification (after latency applied)
+                                print(f"🔍 Look-ahead bias fix verification:")
+                                print(f"   Signal time: {original_signal_time.strftime('%H:%M:%S')}, SPY price: ${spy_price_at_signal:.4f}")
+                                print(f"   Entry time:  {entry_time.strftime('%H:%M:%S')}, SPY price: ${spy_price_at_entry:.4f}")
+                                print(f"   Using signal time price for option contract selection")
+                                
                                 print(f"🕒 Entry latency applied: {latency_seconds}s")
                                 print(f"   Original signal: {original_signal_time.strftime('%H:%M:%S')}")
                                 print(f"   Execution time: {entry_time.strftime('%H:%M:%S')}")
@@ -1518,10 +1533,11 @@ for date_obj in business_days:
                     contract_with_entry = {
                         **selected_contract,
                         'entry_time': entry_time,
-                        'original_signal_time': original_signal_time if 'original_signal_time' in locals() else entry_time,
+                        'original_signal_time': original_signal_time,
                         'latency_seconds': PARAMS.get('latency_seconds', 0),
                         'latency_applied': PARAMS.get('latency_seconds', 0) > 0,
                         'entry_spy_price': spy_price_at_entry,
+                        'spy_price_at_signal': spy_price_at_signal,  # Add this one new field 
                         'entry_option_price': option_entry_price,
                         'price_staleness_seconds': price_staleness,
                         'is_price_stale': is_price_stale,
