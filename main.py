@@ -285,6 +285,11 @@ for date_obj in business_days:
             df_puts = fetch_chain("put")
             df_chain = pd.concat([df_calls, df_puts], ignore_index=True)
             df_chain["ticker_clean"] = df_chain["ticker"].str.replace("O:", "", regex=False)
+
+            # Check for unusually short data before caching
+            if len(df_chain) < 10:
+                print(f"⚠️ Option chain data for {date} is unusually short with only {len(df_chain)} rows after pulling from API. This may indicate incomplete data.")
+
             df_chain.to_pickle(chain_path)
             print("💾 Option chain pulled and cached.")
 
@@ -341,8 +346,16 @@ for date_obj in business_days:
         df_option_aligned = df_option_rth.set_index("timestamp").reindex(df_rth_filled["ts_raw"]).ffill().reset_index()
         df_option_aligned.rename(columns={"index": "ts_raw"}, inplace=True)
 
+        # Define a threshold for allowable mismatches
+        mismatch_threshold = 1  # This can be adjusted based on your tolerance
+
+        # Check for timestamp mismatches
         mismatch_count = (~df_option_aligned["ts_raw"].eq(df_rth_filled["ts_raw"])).sum()
         print(f"🧪 Timestamp mismatches: {mismatch_count}")
+
+        # Raise an exception if mismatches exceed the threshold
+        if mismatch_count > mismatch_threshold:
+            raise Exception(f"⛔ ERROR: Timestamp mismatch in {mismatch_count} rows exceeds the threshold of {mismatch_threshold}. Data alignment issue detected.")
 
         if DEBUG_MODE:
             print(f"\n⏱️ SPY rows: {len(df_rth_filled)}")
