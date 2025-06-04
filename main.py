@@ -111,16 +111,66 @@ def detect_stretch_signal(df_rth_filled, params):
     # Convert filtered signals to DataFrame
     processed_signals_df = pd.DataFrame(filtered_signals)
 
-    if DEBUG_MODE:
+#    if DEBUG_MODE:
         # Log the first 5 processed 'above' stretch signals
-        print("\nFirst 5 Processed 'Above' Stretch Signals:")
-        print(processed_signals_df[processed_signals_df['stretch_label'] == 'above'][['ts_raw', 'close', 'vwap_running', 'percentage_stretch', 'stretch_label']].head())
+#        print("\nFirst 5 Processed 'Above' Stretch Signals:")
+#        print(processed_signals_df[processed_signals_df['stretch_label'] == 'above'][['ts_raw', 'close', 'vwap_running', 'percentage_stretch', 'stretch_label']].head())
         
         # Log the first 5 processed 'below' stretch signals
-        print("\nFirst 5 Processed 'Below' Stretch Signals:")
-        print(processed_signals_df[processed_signals_df['stretch_label'] == 'below'][['ts_raw', 'close', 'vwap_running', 'percentage_stretch', 'stretch_label']].head())
+#        print("\nFirst 5 Processed 'Below' Stretch Signals:")
+#        print(processed_signals_df[processed_signals_df['stretch_label'] == 'below'][['ts_raw', 'close', 'vwap_running', 'percentage_stretch', 'stretch_label']].head())
 
     return processed_signals_df
+
+# === STEP 7b: Detect Partial Reclaims ===
+def detect_partial_reclaims(df_rth_filled, stretch_signals, params):
+    """
+    For each stretch signal, detect if a partial reclaim toward VWAP occurs within the cooldown window.
+    Returns stretch signals with reclaim metadata.
+    """
+    reclaim_threshold = 0.002  # 0.2%
+    cooldown_seconds = params['cooldown_period_seconds']
+    enriched_signals = []
+
+    for _, row in stretch_signals.iterrows():
+        stretch_time = row['ts_raw']
+        label = row['stretch_label']
+        vwap_at_stretch = row['vwap_running']
+
+        # Extract the reclaim window (up to 60 seconds ahead)
+        reclaim_window = df_rth_filled[
+            (df_rth_filled['ts_raw'] > stretch_time) &
+            (df_rth_filled['ts_raw'] <= stretch_time + pd.Timedelta(seconds=cooldown_seconds))
+        ].copy()
+
+        # Define reclaim zone based on stretch direction
+        if label == 'below':
+            valid_reclaims = reclaim_window[
+                reclaim_window['close'] >= reclaim_window['vwap_running'] * (1 - reclaim_threshold)
+            ]
+        elif label == 'above':
+            valid_reclaims = reclaim_window[
+                reclaim_window['close'] <= reclaim_window['vwap_running'] * (1 + reclaim_threshold)
+            ]
+        else:
+            continue  # skip malformed
+
+        # Filter reclaim window based on direction-specific threshold
+        if not valid_reclaims.empty:
+            first_reclaim = valid_reclaims.iloc[0]
+            row['entry_intent'] = True
+            row['reclaim_ts'] = first_reclaim['ts_raw']
+            row['reclaim_price'] = first_reclaim['close']
+            row['vwap_at_reclaim'] = first_reclaim['vwap_running']
+        else:
+            row['entry_intent'] = False
+            row['reclaim_ts'] = pd.NaT
+            row['reclaim_price'] = np.nan
+            row['vwap_at_reclaim'] = np.nan
+
+        enriched_signals.append(row)
+
+    return pd.DataFrame(enriched_signals)
 
 # === STEP 8: Backtest loop ===
 for date_obj in business_days:
@@ -298,8 +348,12 @@ for date_obj in business_days:
 
         # === Insert strategy logic here ===
         stretch_signals = detect_stretch_signal(df_rth_filled, PARAMS)
-#        if DEBUG_MODE:
-#             print(f"🔍 Detected {len(stretch_signals)} stretch signals on {date}.")
+        stretch_signals = detect_partial_reclaims(df_rth_filled, stretch_signals, PARAMS)
+        if DEBUG_MODE:
+            print(f"🎯 Entry intent signals (valid reclaims): {stretch_signals['entry_intent'].sum()}")
+            print(stretch_signals[stretch_signals['entry_intent'] == True][['ts_raw', 'stretch_label', 'reclaim_price', 'vwap_at_reclaim']])
+#            print(stretch_signals[stretch_signals['entry_intent'] == True][['ts_raw', 'reclaim_ts', 'reclaim_price', 'vwap_at_reclaim']].head())
+#            print(f"🔍 Detected {len(stretch_signals)} stretch signals on {date}.")
 
         if DEBUG_MODE:
             # Log the daily breakdown of stretch signals
