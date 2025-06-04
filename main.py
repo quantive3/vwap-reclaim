@@ -1627,7 +1627,7 @@ if all_contracts:
                 slipped_mean = exit_pnl_slipped.loc[reason, 'mean'] if reason in exit_pnl_slipped.index else float('nan')
                 print(f"    {reason}: {stats['mean']:.2f}% avg | With slippage: {slipped_mean:.2f}% ({stats['count']} trades)")
     
-    # Add trade duration statistics
+                # Add trade duration statistics
     if 'trade_duration_seconds' in contracts_df.columns:
         duration_data = contracts_df['trade_duration_seconds'].dropna()
         
@@ -1637,16 +1637,6 @@ if all_contracts:
             print(f"  Median duration: {duration_data.median():.1f} seconds")
             print(f"  Min duration: {duration_data.min():.1f} seconds")
             print(f"  Max duration: {duration_data.max():.1f} seconds")
-            
-            # Add original duration statistics if available (without latency)
-            if 'original_trade_duration_seconds' in contracts_df.columns:
-                original_duration_data = contracts_df['original_trade_duration_seconds'].dropna()
-                if not original_duration_data.empty:
-                    print("\n⏱️ Original Trade Duration Statistics (Without Latency):")
-                    print(f"  Average original duration: {original_duration_data.mean():.1f} seconds")
-                    print(f"  Median original duration: {original_duration_data.median():.1f} seconds")
-                    print(f"  Min original duration: {original_duration_data.min():.1f} seconds")
-                    print(f"  Max original duration: {original_duration_data.max():.1f} seconds")
     
     # Add latency statistics if latency was applied
     if 'latency_applied' in contracts_df.columns and contracts_df['latency_applied'].any():
@@ -1657,87 +1647,10 @@ if all_contracts:
             latency_avg = contracts_df['latency_seconds'].mean()
             print(f"  Latency setting: {latency_avg:.1f} seconds")
         
-        # Calculate latency impact on trades
-        if 'entry_option_price' in contracts_df.columns and 'original_signal_time' in contracts_df.columns:
-            # Create a subset of trades with all necessary data
-            latency_impact_df = contracts_df.dropna(subset=['original_signal_time', 'entry_time', 'original_exit_time', 'exit_time'])
-            
-            if not latency_impact_df.empty:
-                # Count trades affected by entry latency
-                entry_affected_count = len(latency_impact_df[latency_impact_df['entry_time'] > latency_impact_df['original_signal_time']])
-                entry_affected_pct = entry_affected_count / len(latency_impact_df) * 100
-                
-                # Count trades affected by exit latency
-                exit_affected_count = len(latency_impact_df[latency_impact_df['exit_time'] > latency_impact_df['original_exit_time']])
-                exit_affected_pct = exit_affected_count / len(latency_impact_df) * 100
-                
-                print(f"  Trades affected by entry latency: {entry_affected_count} ({entry_affected_pct:.1f}%)")
-                print(f"  Trades affected by exit latency: {exit_affected_count} ({exit_affected_pct:.1f}%)")
-                
-                # Attempt to measure P&L impact of latency if we can match original time pricing
-                try:
-                    # Calculate what P&L would have been without latency
-                    latency_impact = []
-                    
-                    for idx, contract in latency_impact_df.iterrows():
-                        # Get option dataframe from the contract's entry
-                        entry_date = contract['entry_time'].strftime('%Y-%m-%d')
-                        option_ticker = contract['ticker']
-                        option_path = os.path.join(OPTION_DIR, f"{entry_date}_{option_ticker.replace(':', '')}.pkl")
-                        
-                        if os.path.exists(option_path):
-                            # Load the option data
-                            df_option_data = pd.read_pickle(option_path)
-                            
-                            # Get original signal prices if possible
-                            original_entry_rows = df_option_data[df_option_data['timestamp'] == contract['original_signal_time']]
-                            original_exit_rows = df_option_data[df_option_data['timestamp'] == contract['original_exit_time']]
-                            
-                            if not original_entry_rows.empty and not original_exit_rows.empty:
-                                # Get prices at original timestamps
-                                original_entry_price = original_entry_rows['vwap'].iloc[0] if pd.notna(original_entry_rows['vwap'].iloc[0]) else original_entry_rows['close'].iloc[0]
-                                original_exit_price = original_exit_rows['vwap'].iloc[0] if pd.notna(original_exit_rows['vwap'].iloc[0]) else original_exit_rows['close'].iloc[0]
-                                
-                                # Calculate P&L without latency
-                                original_pnl_pct = ((original_exit_price - original_entry_price) / original_entry_price) * 100
-                                actual_pnl_pct = contract['pnl_percent']
-                                
-                                # Calculate the impact
-                                pnl_impact = actual_pnl_pct - original_pnl_pct
-                                
-                                latency_impact.append({
-                                    'ticker': option_ticker,
-                                    'entry_date': entry_date,
-                                    'original_pnl_percent': original_pnl_pct,
-                                    'actual_pnl_percent': actual_pnl_pct,
-                                    'pnl_impact': pnl_impact
-                                })
-                    
-                    # Convert to DataFrame for analysis
-                    if latency_impact:
-                        impact_df = pd.DataFrame(latency_impact)
-                        avg_impact = impact_df['pnl_impact'].mean()
-                        pos_impact_count = len(impact_df[impact_df['pnl_impact'] > 0])
-                        neg_impact_count = len(impact_df[impact_df['pnl_impact'] < 0])
-                        neutral_impact_count = len(impact_df[impact_df['pnl_impact'] == 0])
-                        total_impact_trades = len(impact_df)
-                        
-                        print(f"\n  Latency Impact on P&L (for {total_impact_trades} trades with complete data):")
-                        print(f"    Average P&L impact: {avg_impact:.2f}% per trade")
-                        print(f"    Positive impact: {pos_impact_count} trades ({pos_impact_count/total_impact_trades*100:.1f}%)")
-                        print(f"    Negative impact: {neg_impact_count} trades ({neg_impact_count/total_impact_trades*100:.1f}%)")
-                        print(f"    Neutral impact: {neutral_impact_count} trades ({neutral_impact_count/total_impact_trades*100:.1f}%)")
-                        
-                        # Calculate magnitude of impacts
-                        if pos_impact_count > 0:
-                            avg_pos_impact = impact_df[impact_df['pnl_impact'] > 0]['pnl_impact'].mean()
-                            print(f"    Average positive impact: +{avg_pos_impact:.2f}%")
-                        if neg_impact_count > 0:
-                            avg_neg_impact = impact_df[impact_df['pnl_impact'] < 0]['pnl_impact'].mean()
-                            print(f"    Average negative impact: {avg_neg_impact:.2f}%")
-                
-                except Exception as e:
-                    print(f"  Note: Could not calculate detailed latency P&L impact: {str(e)}")
+        # Note: For accurate latency impact analysis, run the algorithm twice:
+        # 1. Once with PARAMS['latency_seconds'] = 0
+        # 2. Once with PARAMS['latency_seconds'] = 3 (or your desired latency)
+        # Then compare the results between the two runs.
     
     # Sample of contracts with entry and exit details
     print("\n🔍 Sample of trades with P&L (including latency and slippage):")
