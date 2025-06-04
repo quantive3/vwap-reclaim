@@ -2080,9 +2080,10 @@ if all_contracts:
         if 'expectancy' in locals() and avg_risk_per_trade > 0:
             if expectancy != float('inf'):
                 risk_adjusted_expectancy = expectancy / avg_risk_per_trade
-                print(f"\n📊 RISK-ADJUSTED EXPECTANCY: {risk_adjusted_expectancy:.4f}")
+                return_on_risk_percent = risk_adjusted_expectancy * 100
+                print(f"\n📊 AVERAGE RETURN ON RISK: {return_on_risk_percent:.2f}%")
             else:
-                print(f"\n📊 RISK-ADJUSTED EXPECTANCY: ∞ (no losing trades)")
+                print(f"\n📊 AVERAGE RETURN ON RISK: ∞% (no losing trades)")
         
         # Sharpe Ratio (using daily returns, fully adjusted)
         # Group by date to get daily returns
