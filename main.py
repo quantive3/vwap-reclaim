@@ -2012,11 +2012,26 @@ if all_contracts:
     valid_pnl_contracts = contracts_df.dropna(subset=['pnl_dollars_slipped_with_fees'])
     
     if not valid_pnl_contracts.empty:
-        # 2. Average PNL per trade (fully adjusted for slippage, latency, and fees)
-        avg_pnl = valid_pnl_contracts['pnl_dollars_slipped_with_fees'].mean()
-        print(f"\n💰 AVERAGE PNL PER TRADE: ${avg_pnl:.2f}")
+        # Win Rate
+        winning_trades = valid_pnl_contracts[valid_pnl_contracts['pnl_dollars_slipped_with_fees'] > 0]
+        win_rate = len(winning_trades) / len(valid_pnl_contracts) * 100
+        print(f"\n🎯 WIN RATE: {win_rate:.2f}%")
         
-        # 3. Sharpe Ratio (using daily returns, fully adjusted)
+        # Expectancy
+        if not winning_trades.empty:
+            avg_win = winning_trades['pnl_dollars_slipped_with_fees'].mean()
+            losing_trades = valid_pnl_contracts[valid_pnl_contracts['pnl_dollars_slipped_with_fees'] < 0]
+            
+            if not losing_trades.empty:
+                avg_loss = abs(losing_trades['pnl_dollars_slipped_with_fees'].mean())
+                loss_rate = 1 - (len(winning_trades) / len(valid_pnl_contracts))
+                
+                expectancy = (win_rate/100 * avg_win) - (loss_rate * avg_loss)
+                print(f"\n💡 EXPECTANCY: ${expectancy:.2f} per trade")
+            else:
+                print("\n💡 EXPECTANCY: ∞ (no losing trades)")
+        
+        # Sharpe Ratio (using daily returns, fully adjusted)
         # Group by date to get daily returns
         daily_returns = valid_pnl_contracts.groupby(valid_pnl_contracts['entry_time'].dt.date)['pnl_dollars_slipped_with_fees'].sum()
         
@@ -2032,20 +2047,6 @@ if all_contracts:
                 print("\n📈 UNANNUALIZED SHARPE RATIO: N/A (insufficient volatility)")
         else:
             print("\n📈 SHARPE RATIO: N/A (need data from at least two days)")
-        
-        # 4. Profit Factor (fully adjusted)
-        # Profit factor = Gross Profit / Gross Loss
-        winning_trades = valid_pnl_contracts[valid_pnl_contracts['pnl_dollars_slipped_with_fees'] > 0]
-        losing_trades = valid_pnl_contracts[valid_pnl_contracts['pnl_dollars_slipped_with_fees'] < 0]
-        
-        gross_profit = winning_trades['pnl_dollars_slipped_with_fees'].sum() if not winning_trades.empty else 0
-        gross_loss = abs(losing_trades['pnl_dollars_slipped_with_fees'].sum()) if not losing_trades.empty else 0
-        
-        if gross_loss > 0:
-            profit_factor = gross_profit / gross_loss
-            print(f"\n📊 PROFIT FACTOR: {profit_factor:.2f}")
-        else:
-            print("\n📊 PROFIT FACTOR: ∞ (no losing trades)")
     else:
         print("\n⚠️ No valid P&L data available for performance metrics")
 
