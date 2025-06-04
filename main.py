@@ -1,6 +1,8 @@
-# === STEP 1: Mount Google Drive for caching ===
-from google.colab import drive
-drive.mount('/content/drive')
+# === STEP 1: Local Cache Setup ===
+import os
+
+# Create local cache directories
+CACHE_DIR = "./polygon_cache"  # Local cache directory
 
 # === STEP 2: Manual API Key Input ===
 API_KEY = input("🔑 Enter your Polygon API key: ").strip()
@@ -10,7 +12,6 @@ import pandas as pd
 # Set pandas option to use future behavior for fill operations
 pd.set_option('future.no_silent_downcasting', True)
 import requests
-import os
 from datetime import time
 import hashlib
 import numpy as np
@@ -175,7 +176,7 @@ business_days = pd.date_range(start=start_date, end=end_date, freq="B")
 ticker = PARAMS['ticker']
 
 # === STEP 4: Caching paths ===
-CACHE_DIR = "/content/drive/MyDrive/polygon_cache"
+# CACHE_DIR is already defined in Step 1
 SPY_DIR = os.path.join(CACHE_DIR, "spy")
 CHAIN_DIR = os.path.join(CACHE_DIR, "chain")
 OPTION_DIR = os.path.join(CACHE_DIR, "option")
