@@ -34,7 +34,8 @@ PARAMS = {
     'ticker': 'SPY',
     'option_type': 'call',  # 'call' or 'put'
     'require_same_day_expiry': True,  # Whether to strictly require same-day expiry options
-    'strikes_itm_depth': 1,  # Number of strikes ITM to target (1 = closest ITM, 2 = second closest, etc.)
+    'strikes_depth': 1,  # Number of strikes from ATM to target (1 = closest, 2 = second closest, etc.). Always use 1 or greater.
+    'option_selection_mode': 'itm',  # Options: 'itm', 'otm', or 'atm' - determines whether to select in-the-money, out-of-money, or at-the-money options
     
     # Data quality thresholds - for error checking
     'min_spy_data_rows': 10000,  # Minimum acceptable rows for SPY data
@@ -236,13 +237,13 @@ def detect_partial_reclaims(df_rth_filled, stretch_signals, params):
 # === STEP 7c: Select Option Contract ===
 def select_option_contract(entry_signal, df_chain, spy_price, params):
     """
-    Select the appropriate option contract based on stretch direction and ATM/ITM logic.
+    Select the appropriate option contract based on stretch direction and selection mode logic.
     
     Parameters:
     - entry_signal: DataFrame row with entry signal information
     - df_chain: DataFrame with option chain data
     - spy_price: Current SPY price at entry
-    - params: Strategy parameters
+    - params: Strategy parameters including option_selection_mode and strikes_depth
     
     Returns:
     - selected_contract: Dictionary with selected contract details
@@ -289,43 +290,123 @@ def select_option_contract(entry_signal, df_chain, spy_price, params):
     # Sort by absolute difference to find closest to ATM
     atm_chain = filtered_chain.sort_values('abs_diff')
     
-    # If there's an exact match (unlikely but possible), use it
+    # Get option selection mode (itm, otm, or atm)
+    option_selection_mode = params.get('option_selection_mode', 'itm').lower()
+    
+    # Get the target strike depth (how many strikes from ATM to go)
+    strikes_depth = params.get('strikes_depth', 1)  # Default to 1 if not specified
+    
+    # Check for exact ATM match (unlikely but possible)
     exact_match = atm_chain[atm_chain['strike_price'] == spy_price]
-    
-    # Get the target ITM depth (how many strikes in-the-money to go)
-    strikes_itm_depth = params.get('strikes_itm_depth', 1)  # Default to 1 if not specified
-    
     if not exact_match.empty:
         selected_contract = exact_match.iloc[0]
+        selection_mode_used = 'atm_exact'
     else:
-        # For calls, ITM means strike < price
-        # For puts, ITM means strike > price
-        if option_type == 'call':
-            itm_contracts = atm_chain[atm_chain['strike_price'] < spy_price]
-            if not itm_contracts.empty:
-                # Sort by strike price in descending order (highest strike first)
-                itm_sorted = itm_contracts.sort_values('strike_price', ascending=False)
-                
-                # Get the nth ITM strike based on depth parameter
-                # (position 0 is closest to ATM, 1 is one strike deeper ITM, etc.)
-                target_idx = min(strikes_itm_depth - 1, len(itm_sorted) - 1)
-                selected_contract = itm_sorted.iloc[target_idx]
-            else:
-                # If no ITM contracts, just get the closest ATM
-                selected_contract = atm_chain.iloc[0]
-        else:  # put
-            itm_contracts = atm_chain[atm_chain['strike_price'] > spy_price]
-            if not itm_contracts.empty:
-                # Sort by strike price in ascending order (lowest strike first)
-                itm_sorted = itm_contracts.sort_values('strike_price', ascending=True)
-                
-                # Get the nth ITM strike based on depth parameter
-                # (position 0 is closest to ATM, 1 is one strike deeper ITM, etc.)
-                target_idx = min(strikes_itm_depth - 1, len(itm_sorted) - 1)
-                selected_contract = itm_sorted.iloc[target_idx]
-            else:
-                # If no ITM contracts, just get the closest ATM
-                selected_contract = atm_chain.iloc[0]
+        # Use separate logic paths based on selection mode
+        if option_selection_mode == 'itm':
+            # ===== ITM SELECTION LOGIC =====
+            if option_type == 'call':
+                # For calls, ITM means strike < price
+                itm_contracts = atm_chain[atm_chain['strike_price'] < spy_price]
+                if not itm_contracts.empty:
+                    # Sort by strike price in descending order (highest strike first)
+                    itm_sorted = itm_contracts.sort_values('strike_price', ascending=False)
+                    
+                    # Get the nth ITM strike based on depth parameter
+                    target_idx = min(strikes_depth - 1, len(itm_sorted) - 1)
+                    selected_contract = itm_sorted.iloc[target_idx]
+                    selection_mode_used = 'itm'
+                else:
+                    # If no ITM contracts, fall back to ATM
+                    selected_contract = atm_chain.iloc[0]
+                    selection_mode_used = 'atm_fallback'
+            else:  # put
+                # For puts, ITM means strike > price
+                itm_contracts = atm_chain[atm_chain['strike_price'] > spy_price]
+                if not itm_contracts.empty:
+                    # Sort by strike price in ascending order (lowest strike first)
+                    itm_sorted = itm_contracts.sort_values('strike_price', ascending=True)
+                    
+                    # Get the nth ITM strike based on depth parameter
+                    target_idx = min(strikes_depth - 1, len(itm_sorted) - 1)
+                    selected_contract = itm_sorted.iloc[target_idx]
+                    selection_mode_used = 'itm'
+                else:
+                    # If no ITM contracts, fall back to ATM
+                    selected_contract = atm_chain.iloc[0]
+                    selection_mode_used = 'atm_fallback'
+        
+        elif option_selection_mode == 'otm':
+            # ===== OTM SELECTION LOGIC =====
+            if option_type == 'call':
+                # For calls, OTM means strike > price
+                otm_contracts = atm_chain[atm_chain['strike_price'] > spy_price]
+                if not otm_contracts.empty:
+                    # Sort by strike price in ascending order (lowest strike first)
+                    otm_sorted = otm_contracts.sort_values('strike_price', ascending=True)
+                    
+                    # Get the nth OTM strike based on depth parameter
+                    target_idx = min(strikes_depth - 1, len(otm_sorted) - 1)
+                    selected_contract = otm_sorted.iloc[target_idx]
+                    selection_mode_used = 'otm'
+                else:
+                    # If no OTM contracts, fall back to ATM
+                    selected_contract = atm_chain.iloc[0]
+                    selection_mode_used = 'atm_fallback'
+            else:  # put
+                # For puts, OTM means strike < price
+                otm_contracts = atm_chain[atm_chain['strike_price'] < spy_price]
+                if not otm_contracts.empty:
+                    # Sort by strike price in descending order (highest strike first)
+                    otm_sorted = otm_contracts.sort_values('strike_price', ascending=False)
+                    
+                    # Get the nth OTM strike based on depth parameter
+                    target_idx = min(strikes_depth - 1, len(otm_sorted) - 1)
+                    selected_contract = otm_sorted.iloc[target_idx]
+                    selection_mode_used = 'otm'
+                else:
+                    # If no OTM contracts, fall back to ATM
+                    selected_contract = atm_chain.iloc[0]
+                    selection_mode_used = 'atm_fallback'
+        
+        elif option_selection_mode == 'atm':
+            # ===== ATM SELECTION LOGIC =====
+            # Simply select the option closest to ATM
+            selected_contract = atm_chain.iloc[0]
+            selection_mode_used = 'atm'
+        
+        else:
+            # Invalid selection mode, default to ITM
+            if params['debug_mode']:
+                print(f"⚠️ Invalid option_selection_mode: {option_selection_mode}. Defaulting to 'itm'")
+            
+            # Reuse ITM logic as default case
+            if option_type == 'call':
+                itm_contracts = atm_chain[atm_chain['strike_price'] < spy_price]
+                if not itm_contracts.empty:
+                    itm_sorted = itm_contracts.sort_values('strike_price', ascending=False)
+                    target_idx = min(strikes_depth - 1, len(itm_sorted) - 1)
+                    selected_contract = itm_sorted.iloc[target_idx]
+                    selection_mode_used = 'itm_default'
+                else:
+                    selected_contract = atm_chain.iloc[0]
+                    selection_mode_used = 'atm_fallback'
+            else:  # put
+                itm_contracts = atm_chain[atm_chain['strike_price'] > spy_price]
+                if not itm_contracts.empty:
+                    itm_sorted = itm_contracts.sort_values('strike_price', ascending=True)
+                    target_idx = min(strikes_depth - 1, len(itm_sorted) - 1)
+                    selected_contract = itm_sorted.iloc[target_idx]
+                    selection_mode_used = 'itm_default'
+                else:
+                    selected_contract = atm_chain.iloc[0]
+                    selection_mode_used = 'atm_fallback'
+    
+    # Define moneyness states for the contract
+    is_atm = selected_contract['strike_price'] == spy_price
+    is_itm = ((option_type == 'call' and selected_contract['strike_price'] < spy_price) or
+             (option_type == 'put' and selected_contract['strike_price'] > spy_price))
+    is_otm = not (is_atm or is_itm)
     
     # Create a dictionary with only the necessary contract details
     contract_details = {
@@ -334,26 +415,38 @@ def select_option_contract(entry_signal, df_chain, spy_price, params):
         'strike_price': selected_contract['strike_price'],
         'expiration_date': selected_contract.get('expiration_date', None),
         'abs_diff': selected_contract['abs_diff'],
-        'is_atm': selected_contract['strike_price'] == spy_price,
-        'is_itm': (option_type == 'call' and selected_contract['strike_price'] < spy_price) or
-                  (option_type == 'put' and selected_contract['strike_price'] > spy_price),
+        'is_atm': is_atm,
+        'is_itm': is_itm,
+        'is_otm': is_otm,
         'is_same_day_expiry': selected_contract.get('expiration_date', '') == current_date,
-        'itm_depth': strikes_itm_depth  # Add the ITM depth to the contract details for reference
+        'selection_mode': option_selection_mode,
+        'selection_mode_used': selection_mode_used,
+        'strikes_depth': strikes_depth
     }
     
     if params['debug_mode']:
-        itm_status = "ITM" if contract_details['is_itm'] else ("ATM" if contract_details['is_atm'] else "OTM")
+        # Determine actual moneyness status for display
+        if is_atm:
+            moneyness_status = "ATM"
+        elif is_itm:
+            moneyness_status = "ITM"
+        else:
+            moneyness_status = "OTM"
+            
         expiry_status = "Same-day expiry" if contract_details['is_same_day_expiry'] else "Future expiry"
-        print(f"✅ Selected {option_type.upper()} option: {contract_details['ticker']} with strike {contract_details['strike_price']} ({itm_status}, {expiry_status})")
+        
+        print(f"✅ Selected {option_type.upper()} option: {contract_details['ticker']} with strike {contract_details['strike_price']} ({moneyness_status}, {expiry_status})")
         print(f"   Underlying price: {spy_price}, Strike diff: {contract_details['abs_diff']:.4f}")
         print(f"   Entry timestamp: {entry_signal['reclaim_ts']}, Expiration date: {contract_details['expiration_date']}")
         print(f"   ITM depth: {strikes_itm_depth} strikes")
     
-#    if DEBUG_MODE:
+    if DEBUG_MODE:
 #        print(f"DEBUG: Stretch direction: {entry_signal['stretch_label']}")
 #        print(f"DEBUG: Selected option type: {option_type}")
 #        print(f"DEBUG: SPY price: {spy_price}, Strike: {contract_details['strike_price']}")
 #        print(f"DEBUG: Is ATM: {contract_details['is_atm']}, Is ITM: {contract_details['is_itm']}")
+        print(f"   Selection mode: {option_selection_mode.upper()}, Actual mode used: {selection_mode_used}")
+        print(f"   Strike depth: {strikes_depth} strikes from ATM")
     
     return contract_details
 
