@@ -34,7 +34,8 @@ for d in [SPY_DIR, CHAIN_DIR, OPTION_DIR]:
 PARAMS = {
     'stretch_threshold': 0.003,  # 0.3%
     'entry_start_time': time(9, 30),
-    'entry_end_time': time(16, 0),  
+    'entry_end_time': time(16, 0),
+    'cooldown_period_seconds': 60,  # Cooldown period in seconds
 }
 
 # === STEP 7: Stretch Signal Detection ===
@@ -90,7 +91,36 @@ def detect_stretch_signal(df_rth_filled, params):
 #        print("\nFirst 5 'Below' Stretch Signals:")
 #        print(signals[signals['stretch_label'] == 'below'][['timestamp', 'close', 'vwap_running', 'percentage_stretch', 'stretch_label']].head())
     
-    return signals
+    # Implement cooldown logic
+    last_above_signal_time = None
+    last_below_signal_time = None
+    cooldown_period = pd.Timedelta(seconds=params['cooldown_period_seconds'])
+
+    filtered_signals = []
+    for _, row in signals.iterrows():
+        current_time = row['ts_raw']
+        if row['stretch_label'] == 'above':
+            if last_above_signal_time is None or (current_time - last_above_signal_time) >= cooldown_period:
+                filtered_signals.append(row)
+                last_above_signal_time = current_time
+        elif row['stretch_label'] == 'below':
+            if last_below_signal_time is None or (current_time - last_below_signal_time) >= cooldown_period:
+                filtered_signals.append(row)
+                last_below_signal_time = current_time
+
+    # Convert filtered signals to DataFrame
+    processed_signals_df = pd.DataFrame(filtered_signals)
+
+    if DEBUG_MODE:
+        # Log the first 5 processed 'above' stretch signals
+        print("\nFirst 5 Processed 'Above' Stretch Signals:")
+        print(processed_signals_df[processed_signals_df['stretch_label'] == 'above'][['ts_raw', 'close', 'vwap_running', 'percentage_stretch', 'stretch_label']].head())
+        
+        # Log the first 5 processed 'below' stretch signals
+        print("\nFirst 5 Processed 'Below' Stretch Signals:")
+        print(processed_signals_df[processed_signals_df['stretch_label'] == 'below'][['ts_raw', 'close', 'vwap_running', 'percentage_stretch', 'stretch_label']].head())
+
+    return processed_signals_df
 
 # === STEP 8: Backtest loop ===
 for date_obj in business_days:
