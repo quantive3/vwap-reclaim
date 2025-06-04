@@ -1914,17 +1914,18 @@ if all_contracts:
         # Then compare the results between the two runs.
     
     # Sample of contracts with entry and exit details
-    print("\n🔍 Sample of trades with P&L (including latency, slippage, and transaction costs):")
-    display_columns = ['original_signal_time', 'entry_time', 'option_type', 'strike_price', 
+    if DEBUG_MODE:
+        print("\n🔍 Sample of trades with P&L (including latency, slippage, and transaction costs):")
+        display_columns = ['original_signal_time', 'entry_time', 'option_type', 'strike_price', 
                        'entry_option_price', 'entry_option_price_slipped',
                        'original_exit_time', 'exit_time', 'exit_price', 'exit_price_slipped',
                        'pnl_percent', 'pnl_percent_slipped',
                        'transaction_cost_total', 'pnl_dollars', 'pnl_dollars_with_fees', 'pnl_dollars_slipped_with_fees',
                        'exit_reason', 'trade_duration_seconds']
     
-    # Only include columns that exist
-    existing_columns = [col for col in display_columns if col in contracts_df.columns]
-    print(contracts_df[existing_columns].head(10))
+        # Only include columns that exist
+        existing_columns = [col for col in display_columns if col in contracts_df.columns]
+        print(contracts_df[existing_columns].head(10))
 
 # ==================== GENERATE SUMMARY REPORT ====================
 print("\n" + "=" * 20 + " SUMMARY OF ERRORS + WARNINGS " + "=" * 20)
