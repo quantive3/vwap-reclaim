@@ -74,6 +74,8 @@ issue_tracker = {
         "price_staleness": 0,
         "short_data_warnings": 0,
         "timestamp_mismatches_below_threshold": 0,
+        "shares_per_contract_missing": 0,  # Warning when default shares_per_contract is used
+        "non_standard_contract_size": 0,   # Warning when shares_per_contract is not 100
         "other": 0,
         "details": []  # Store details for uncommon warnings
     },
@@ -511,8 +513,24 @@ def select_option_contract(entry_signal, df_chain, spy_price, params):
         'is_same_day_expiry': selected_contract.get('expiration_date', '') == current_date,
         'selection_mode': option_selection_mode,
         'selection_mode_used': selection_mode_used,
-        'strikes_depth': strikes_depth
+        'strikes_depth': strikes_depth,
+        'shares_per_contract': selected_contract.get('shares_per_contract', 100)  # Default to 100 if not available
     }
+    
+    # Add warnings for shares_per_contract
+    # Warning for missing shares_per_contract
+    if 'shares_per_contract' not in selected_contract:
+        missing_shares_msg = f"Missing shares_per_contract for {contract_details['ticker']} - using default of 100"
+        if params['debug_mode']:
+            print(f"⚠️ {missing_shares_msg}")
+        track_issue("warnings", "shares_per_contract_missing", missing_shares_msg, date=current_date)
+    
+    # Warning for non-standard contract size
+    if contract_details['shares_per_contract'] != 100:
+        non_standard_msg = f"Non-standard contract size detected: {contract_details['shares_per_contract']} shares for {contract_details['ticker']}"
+        if params['debug_mode']:
+            print(f"⚠️ {non_standard_msg}")
+        track_issue("warnings", "non_standard_contract_size", non_standard_msg, date=current_date)
     
     if params['debug_mode']:
         # Determine actual moneyness status for display
@@ -1208,6 +1226,12 @@ if all_contracts:
     avg_diff = contracts_df['abs_diff'].mean()
     print(f"\n  Average distance from ATM: {avg_diff:.4f}")
     
+    # Show contract multiplier stats
+    print("\n📊 Contract Multiplier Statistics:")
+    shares_counts = contracts_df['shares_per_contract'].value_counts()
+    for shares, count in shares_counts.items():
+        print(f"  {shares} shares per contract: {count} trade(s) ({count/len(contracts_df)*100:.1f}%)")
+    
     # Add price staleness statistics if enabled
     if PARAMS['report_stale_prices'] and 'is_price_stale' in contracts_df.columns:
         stale_count = len(contracts_df[contracts_df['is_price_stale'] == True])
@@ -1253,20 +1277,22 @@ if all_contracts:
             print(f"  Min P&L: {pnl_data.min():.2f}%")
             print(f"  Max P&L: {pnl_data.max():.2f}%")
             
-            # Calculate dollar P&L statistics
-            contracts_df['pnl_dollars'] = contracts_df['exit_price'] - contracts_df['entry_option_price']
+            # Calculate dollar P&L statistics using contract multiplier
+            contracts_df['pnl_per_share'] = contracts_df['exit_price'] - contracts_df['entry_option_price']
+            # Apply contract multiplier for true dollar P&L
+            contracts_df['pnl_dollars'] = contracts_df['pnl_per_share'] * contracts_df['shares_per_contract']
             dollar_pnl_data = contracts_df['pnl_dollars'].dropna()
             
             if not dollar_pnl_data.empty:
-                print("\n💵 Dollar P&L Statistics:")
+                print("\n💵 Dollar P&L Statistics (with contract multiplier):")
                 print(f"  Average P&L: ${dollar_pnl_data.mean():.2f}")
                 print(f"  Median P&L: ${dollar_pnl_data.median():.2f}")
                 print(f"  Min P&L: ${dollar_pnl_data.min():.2f}")
                 print(f"  Max P&L: ${dollar_pnl_data.max():.2f}")
                 
-                # Calculate total capital risked and total P&L
+                # Calculate total capital risked and total P&L with contract multiplier
                 total_pnl = dollar_pnl_data.sum()
-                total_risked = contracts_df['entry_option_price'].sum()
+                total_risked = (contracts_df['entry_option_price'] * contracts_df['shares_per_contract']).sum()
                 
                 print(f"\n  Total capital risked: ${total_risked:.2f}")
                 print(f"  Total P&L: ${total_pnl:.2f} ({(total_pnl/total_risked*100):.2f}% return on risked capital)")
@@ -1306,6 +1332,7 @@ if all_contracts:
 print("\n" + "=" * 20 + " SUMMARY OF ERRORS + WARNINGS " + "=" * 20)
 
 # Processing Stats Section
+# Doesn't account for days skipped due to no valid entry signals.
 print("\n📊 PROCESSING STATS:")
 print(f"  - Days attempted: {issue_tracker['days']['attempted']}")
 print(f"  - Days successfully processed: {issue_tracker['days']['processed']}")
@@ -1330,6 +1357,8 @@ print(f"  - No {ticker} Data: {ticker_warnings}")
 print(f"  - Price staleness: {issue_tracker['warnings']['price_staleness']}")
 print(f"  - Short data warnings: {issue_tracker['warnings']['short_data_warnings']}")
 print(f"  - Timestamp mismatches below threshold: {issue_tracker['warnings']['timestamp_mismatches_below_threshold']}")
+print(f"  - Missing shares_per_contract: {issue_tracker['warnings']['shares_per_contract_missing']}")
+print(f"  - Non-standard contract size: {issue_tracker['warnings']['non_standard_contract_size']}")
 print(f"  - Other warnings: {issue_tracker['warnings']['other']}")
 
 # Show details of 'other' warnings if any exist
