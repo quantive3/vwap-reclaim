@@ -248,6 +248,14 @@ for date_obj in business_days:
             if not df_rth_filled["vwap_running"].apply(lambda x: pd.notna(x) and np.isfinite(x)).all():
                 raise ValueError("❌ Non-finite values (inf/-inf) in vwap_running")
 
+            # Check for NaNs and non-finite values in critical columns
+            critical_columns = ["open", "high", "low", "close", "volume", "vw"]
+            for column in critical_columns:
+                if df_rth_filled[column].isna().any():
+                    raise ValueError(f"❌ NaNs detected in {column} — check data integrity")
+                if not df_rth_filled[column].apply(lambda x: pd.notna(x) and np.isfinite(x)).all():
+                    raise ValueError(f"❌ Non-finite values (inf/-inf) in {column} — check data integrity")
+
             if len(df_rth_filled) < 1000:
                 print(f"⚠️ SPY data for {date} is unusually short with only {len(df_rth_filled)} rows after pulling from API. This may indicate incomplete data.")
 
@@ -347,7 +355,7 @@ for date_obj in business_days:
         df_option_aligned.rename(columns={"index": "ts_raw"}, inplace=True)
 
         # Define a threshold for allowable mismatches
-        mismatch_threshold = 1  # This can be adjusted based on your tolerance
+        mismatch_threshold = 0  # This can be adjusted based on your tolerance
 
         # Check for timestamp mismatches
         mismatch_count = (~df_option_aligned["ts_raw"].eq(df_rth_filled["ts_raw"])).sum()
