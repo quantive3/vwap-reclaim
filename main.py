@@ -50,6 +50,9 @@ PARAMS = {
     'price_staleness_threshold_seconds': 10,  # Maximum allowable staleness in seconds for option prices
     'report_stale_prices': True,  # Enable/disable reporting of stale prices
     
+    # Slippage settings
+    'slippage_percent': 0.01,  # 1% slippage
+    
     # Debug settings
     'debug_mode': True,  # Enable/disable debug outputs
 }
@@ -1240,7 +1243,7 @@ if all_contracts:
     
     # === SLIPPAGE ADJUSTMENT (Post-Processing) ===
     # Apply slippage without modifying original trade decisions
-    SLIPPAGE_PERCENT = 0.01  # 1% slippage
+    SLIPPAGE_PERCENT = PARAMS['slippage_percent']
     
     # Create slippage-adjusted entry and exit prices (worse entries, worse exits)
     contracts_df['entry_option_price_slipped'] = contracts_df['entry_option_price'] * (1 + SLIPPAGE_PERCENT)
