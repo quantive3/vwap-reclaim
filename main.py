@@ -82,6 +82,7 @@ issue_tracker = {
         "timestamp_mismatches_below_threshold": 0,
         "shares_per_contract_missing": 0,  # Warning when default shares_per_contract is used
         "non_standard_contract_size": 0,   # Warning when shares_per_contract is not 100
+        "vwap_fallback_to_close": 0,       # Added for tracking fallbacks from VWAP to close price
         "other": 0,
         "details": []  # Store details for uncommon warnings
     },
@@ -374,9 +375,13 @@ def apply_latency(original_timestamp, df_data, latency_seconds):
         if 'vwap' in delayed_row and pd.notna(delayed_row['vwap']):
             result['delayed_price'] = delayed_row['vwap']
             result['is_valid'] = True
+            result['used_fallback'] = False
         elif pd.notna(delayed_row['close']):
             result['delayed_price'] = delayed_row['close']
             result['is_valid'] = True
+            result['used_fallback'] = True
+            # Note: we don't track the issue here because this is a utility function
+            # The calling code will handle tracking based on the 'used_fallback' flag
     
     return result
 
@@ -725,6 +730,15 @@ def process_exits_for_contract(contract, params):
         # Skip if price is NaN
         if pd.isna(current_price):
             continue
+            
+        # Check if we had to use close price instead of VWAP
+        if 'vwap' not in row or pd.isna(row['vwap']):
+            # Log the fallback to close price
+            fallback_msg = f"Falling back to close price for exit check at {current_time} - VWAP not available"
+            if params['debug_mode']:
+                print(f"⚠️ {fallback_msg}")
+            entry_date = contract['entry_time'].strftime("%Y-%m-%d")
+            track_issue("warnings", "vwap_fallback_to_close", fallback_msg, date=entry_date)
         
         try:
             # Check for price staleness at this potential exit point
@@ -761,6 +775,15 @@ def process_exits_for_contract(contract, params):
                             exit_staleness = latency_result['delayed_row']['seconds_since_update']
                             exit_is_stale = exit_staleness > staleness_threshold
                         
+                        # Check if we had to use close price instead of VWAP
+                        if latency_result.get('used_fallback', False):
+                            # Log the fallback to close price
+                            fallback_msg = f"Falling back to close price for latency-adjusted exit at {exit_time} - VWAP not available"
+                            if params['debug_mode']:
+                                print(f"⚠️ {fallback_msg}")
+                            entry_date = contract['entry_time'].strftime("%Y-%m-%d")
+                            track_issue("warnings", "vwap_fallback_to_close", fallback_msg, date=entry_date)
+                            
                         if params['debug_mode']:
                             print(f"🕒 Exit latency applied: {latency_seconds}s")
                             print(f"   Original signal: {original_exit_time.strftime('%H:%M:%S')}")
@@ -831,7 +854,18 @@ def process_exits_for_contract(contract, params):
             last_row = future_prices.iloc[-1]
             original_exit_time = last_row['ts_raw']
             exit_time = original_exit_time
-            exit_price = last_row['vwap'] if 'vwap' in last_row and pd.notna(last_row['vwap']) else last_row['close']
+            
+            # Get price with fallback from VWAP to close
+            if 'vwap' in last_row and pd.notna(last_row['vwap']):
+                exit_price = last_row['vwap']
+            else:
+                # Log the fallback to close price
+                fallback_msg = f"Falling back to close price for forced exit at {original_exit_time} - VWAP not available"
+                if params['debug_mode']:
+                    print(f"⚠️ {fallback_msg}")
+                entry_date = contract['entry_time'].strftime("%Y-%m-%d")
+                track_issue("warnings", "vwap_fallback_to_close", fallback_msg, date=entry_date)
+                exit_price = last_row['close']
             
             # Check staleness for forced exit
             staleness_threshold = params['price_staleness_threshold_seconds']
@@ -1245,6 +1279,14 @@ for date_obj in business_days:
                             option_entry_price = latency_result['delayed_price']
                             option_row = df_option_aligned[df_option_aligned['ts_raw'] == entry_time]
                             
+                            # Check if we had to use close price instead of VWAP in the latency result
+                            if 'vwap' in latency_result['delayed_row'] and pd.isna(latency_result['delayed_row']['vwap']):
+                                # Log the fallback to close price
+                                fallback_msg = f"Falling back to close price for latency-adjusted entry at {entry_time} - VWAP not available"
+                                if DEBUG_MODE:
+                                    print(f"⚠️ {fallback_msg}")
+                                track_issue("warnings", "vwap_fallback_to_close", fallback_msg, date=date)
+                            
                             if DEBUG_MODE:
                                 print(f"🕒 Entry latency applied: {latency_seconds}s")
                                 print(f"   Original signal: {original_signal_time.strftime('%H:%M:%S')}")
@@ -1268,8 +1310,23 @@ for date_obj in business_days:
                             issue_tracker["opportunities"]["failed_entries_data_issues"] += 1
                             continue
                         
-                        # Extract entry price for the option
-                        option_entry_price = option_row['vwap'].iloc[0]
+                        # Extract entry price for the option (with fallback to close)
+                        if pd.notna(option_row['vwap'].iloc[0]):
+                            option_entry_price = option_row['vwap'].iloc[0]
+                        elif pd.notna(option_row['close'].iloc[0]):
+                            # Log the fallback to close price
+                            fallback_msg = f"Falling back to close price for entry at {entry_time} - VWAP not available"
+                            if DEBUG_MODE:
+                                print(f"⚠️ {fallback_msg}")
+                            track_issue("warnings", "vwap_fallback_to_close", fallback_msg, date=date)
+                            option_entry_price = option_row['close'].iloc[0]
+                        else:
+                            # Neither VWAP nor close is valid - skip this entry
+                            missing_price_msg = f"Both VWAP and close prices missing for entry at {entry_time} - skipping this entry"
+                            print(f"⚠️ {missing_price_msg}")
+                            track_issue("errors", "missing_option_price_data", missing_price_msg, level="error", date=date)
+                            issue_tracker["opportunities"]["failed_entries_data_issues"] += 1
+                            continue
                     
                     # Check price staleness at entry
                     staleness_threshold = PARAMS['price_staleness_threshold_seconds']
@@ -1435,7 +1492,7 @@ if all_contracts:
         avg_staleness = contracts_df['price_staleness_seconds'].mean()
         max_staleness = contracts_df['price_staleness_seconds'].max()
         
-        print("\n🔍 Price Staleness Statistics:")
+        print("\n🔍 Entry Price Staleness Statistics:")
         print(f"  Fresh price entries: {fresh_count} ({(fresh_count/len(contracts_df))*100:.1f}%)")
         print(f"  Stale price entries: {stale_count} ({(stale_count/len(contracts_df))*100:.1f}%)")
         print(f"  Average staleness: {avg_staleness:.2f} seconds")
@@ -1725,6 +1782,7 @@ print(f"  - Short data warnings: {issue_tracker['warnings']['short_data_warnings
 print(f"  - Timestamp mismatches below threshold: {issue_tracker['warnings']['timestamp_mismatches_below_threshold']}")
 print(f"  - Missing shares_per_contract: {issue_tracker['warnings']['shares_per_contract_missing']}")
 print(f"  - Non-standard contract size: {issue_tracker['warnings']['non_standard_contract_size']}")
+print(f"  - VWAP fallbacks to close price: {issue_tracker['warnings']['vwap_fallback_to_close']}")
 print(f"  - Other warnings: {issue_tracker['warnings']['other']}")
 
 # Show details of 'other' warnings if any exist
