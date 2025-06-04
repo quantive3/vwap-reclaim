@@ -2030,6 +2030,38 @@ if all_contracts:
                 print(f"\n💡 EXPECTANCY: ${expectancy:.2f} per trade")
             else:
                 print("\n💡 EXPECTANCY: ∞ (no losing trades)")
+                # Set expectancy to a high value for risk-adjusted calculations if needed
+                expectancy = float('inf')
+        
+        # Risk calculation (independent of expectancy)
+        # Set up components for risk calculation
+        contract_fees = PARAMS['brokerage_fee_per_contract'] + PARAMS['exchange_fee_per_contract']
+        round_trip_fees = contract_fees * 2 * PARAMS['contracts_per_trade']  # Both entry and exit
+        stop_loss_decimal = abs(PARAMS['stop_loss_percent']) / 100  # Convert to positive decimal
+        
+        # Calculate capital at risk (total position value)
+        valid_pnl_contracts['capital_at_risk'] = (
+            valid_pnl_contracts['entry_option_price_slipped'] * 
+            valid_pnl_contracts['shares_per_contract'] * 
+            PARAMS['contracts_per_trade']
+        )
+        
+        # Calculate max loss per trade (stop loss + fees)
+        valid_pnl_contracts['max_loss_per_trade'] = (
+            valid_pnl_contracts['capital_at_risk'] * stop_loss_decimal
+        ) + round_trip_fees
+        
+        # Calculate average risk per trade
+        avg_risk_per_trade = valid_pnl_contracts['max_loss_per_trade'].mean()
+        print(f"\n💵 AVERAGE RISK PER TRADE: ${avg_risk_per_trade:.2f}")
+        
+        # Risk-adjusted expectancy
+        if 'expectancy' in locals() and avg_risk_per_trade > 0:
+            if expectancy != float('inf'):
+                risk_adjusted_expectancy = expectancy / avg_risk_per_trade
+                print(f"\n📊 RISK-ADJUSTED EXPECTANCY: {risk_adjusted_expectancy:.4f}")
+            else:
+                print(f"\n📊 RISK-ADJUSTED EXPECTANCY: ∞ (no losing trades)")
         
         # Sharpe Ratio (using daily returns, fully adjusted)
         # Group by date to get daily returns
