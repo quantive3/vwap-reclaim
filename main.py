@@ -34,8 +34,11 @@ PARAMS = {
     'take_profit_percent': 25,     # Take profit at 25% gain
     'stop_loss_percent': -50,      # Stop loss at 50% loss
     'max_trade_duration_seconds': 300,  # Exit after 300 seconds (5 minutes)
-    'end_of_day_exit_time': time(15, 55),  # 3:55 PM exit cutoff
-    'emergency_exit_time': time(15, 58),   # 3:58 PM absolute failsafe exit (overrides all other logic)
+    'end_of_day_exit_time': time(15, 54),  # trade exit cutoff
+    'emergency_exit_time': time(15, 55),   # absolute failsafe exit (overrides all other logic)
+    
+    # Risk management failsafes
+    'late_entry_cutoff_time': time(15, 54),  # No new entries after this time
     
     # Latency simulation
     'latency_seconds': 3,    # Seconds delay between signal and execution (0 = disabled)
@@ -115,8 +118,10 @@ issue_tracker = {
         "total_options_contracts": 0
     },
     "risk_management": {
-        "emergency_exits": 0,      # Total number of emergency exits triggered
-        "emergency_exit_dates": set()  # Dates when emergency exits were triggered
+        "emergency_exits": 0,       # Total number of emergency exits triggered
+        "emergency_exit_dates": set(),  # Dates when emergency exits were triggered
+        "late_entries_blocked": 0,  # Total number of late entry attempts blocked
+        "late_entry_dates": set()   # Dates when late entries were blocked
     }
 }
 
@@ -772,6 +777,36 @@ def process_emergency_exit(contract, current_time, df_option, params):
     
     return contract
 
+# === STEP 7f: Late Entry Blocker Failsafe ===
+def check_late_entry_cutoff(entry_time, params):
+    """
+    Check if the entry time is past the late entry cutoff time.
+    This function prevents new positions from being opened too late in the trading day.
+    
+    Parameters:
+    - entry_time: Timestamp of the potential entry signal
+    - params: Strategy parameters
+    
+    Returns:
+    - Tuple of (is_blocked, message):
+      - is_blocked: Boolean indicating if entry should be blocked
+      - message: String with blocking reason (if blocked) or None
+    """
+    # Get the late entry cutoff time (default 3:30 PM)
+    cutoff_time = params.get('late_entry_cutoff_time', time(15, 30))
+    
+    # Extract time component if entry_time is a datetime
+    entry_time_only = entry_time.time() if hasattr(entry_time, 'time') else entry_time
+    
+    # Check if entry time is past cutoff
+    if entry_time_only >= cutoff_time:
+        cutoff_str = cutoff_time.strftime('%H:%M:%S')
+        entry_str = entry_time_only.strftime('%H:%M:%S')
+        message = f"ENTRY BLOCKED: Time {entry_str} is past the late entry cutoff ({cutoff_str})"
+        return True, message
+    
+    return False, None
+
 def process_exits_for_contract(contract, params):
     """
     Process exit conditions for a single contract.
@@ -1243,6 +1278,20 @@ for date_obj in business_days:
             # Process each valid entry signal
             for idx, entry_signal in valid_entries.iterrows():
                 entry_time = entry_signal['reclaim_ts']
+                
+                # FAILSAFE: Check for late entry cutoff first (blocks entries that are too late in the day)
+                is_blocked, block_message = check_late_entry_cutoff(entry_time, PARAMS)
+                if is_blocked:
+                    print(f"⛔ {block_message}")
+                    
+                    # Track this in risk management stats
+                    current_date = entry_time.strftime("%Y-%m-%d")
+                    issue_tracker["risk_management"]["late_entries_blocked"] += 1
+                    issue_tracker["risk_management"]["late_entry_dates"].add(current_date)
+                    
+                    # Skip this entry and continue to next signal
+                    continue
+                
                 entry_price = entry_signal['reclaim_price']
                 
                 # Get SPY price at entry
@@ -1935,6 +1984,13 @@ if issue_tracker['risk_management']['emergency_exits'] > 0:
     emergency_dates = sorted(issue_tracker['risk_management']['emergency_exit_dates'])
     dates_str = ", ".join(emergency_dates)
     print(f"  - Dates with emergency exits: {dates_str}")
+    
+print(f"  - Late entries blocked: {issue_tracker['risk_management']['late_entries_blocked']}")
+if issue_tracker['risk_management']['late_entries_blocked'] > 0:
+    late_entry_dates = sorted(issue_tracker['risk_management']['late_entry_dates'])
+    dates_str = ", ".join(late_entry_dates)
+    print(f"  - Dates with blocked late entries: {dates_str}")
+    
 print(f"  - Regular end-of-day exits: {sum(1 for c in all_contracts if c.get('exit_reason') == 'end_of_day')}")
 print(f"  - Total trades with defined exit reason: {sum(1 for c in all_contracts if c.get('exit_reason') is not None)}")
 
