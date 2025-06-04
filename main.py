@@ -1238,6 +1238,27 @@ if all_contracts:
     # Create a DataFrame for easier analysis
     contracts_df = pd.DataFrame(all_contracts)
     
+    # === SLIPPAGE ADJUSTMENT (Post-Processing) ===
+    # Apply slippage without modifying original trade decisions
+    SLIPPAGE_AMOUNT = 0.03  # $0.03 fixed slippage amount
+    
+    # Create slippage-adjusted entry and exit prices
+    contracts_df['entry_option_price_slipped'] = contracts_df['entry_option_price'] + SLIPPAGE_AMOUNT
+    contracts_df['exit_price_slipped'] = contracts_df['exit_price'] - SLIPPAGE_AMOUNT
+    
+    # Recalculate P&L with slippage
+    contracts_df['pnl_percent_slipped'] = ((contracts_df['exit_price_slipped'] - contracts_df['entry_option_price_slipped']) / 
+                                           contracts_df['entry_option_price_slipped'] * 100)
+    
+    # Calculate per-share and dollar P&L with slippage
+    contracts_df['pnl_per_share_slipped'] = contracts_df['exit_price_slipped'] - contracts_df['entry_option_price_slipped']
+    contracts_df['pnl_dollars_slipped'] = contracts_df['pnl_per_share_slipped'] * contracts_df['shares_per_contract']
+    
+    # Calculate percentage impact (this one is fine to calculate here)
+    contracts_df['slippage_impact_pct'] = contracts_df['pnl_percent_slipped'] - contracts_df['pnl_percent']
+    
+    # Dollar impact will be calculated later after pnl_dollars is created
+    
     # Count by option type
     call_count = len(contracts_df[contracts_df['option_type'] == 'call'])
     put_count = len(contracts_df[contracts_df['option_type'] == 'put'])
@@ -1332,6 +1353,7 @@ if all_contracts:
         
         # Filter out None/NaN values
         pnl_data = contracts_df['pnl_percent'].dropna()
+        pnl_slipped_data = contracts_df['pnl_percent_slipped'].dropna()
         
         if not pnl_data.empty:
             print("\n💰 Profit/Loss Statistics:")
@@ -1340,11 +1362,25 @@ if all_contracts:
             print(f"  Min P&L: {pnl_data.min():.2f}%")
             print(f"  Max P&L: {pnl_data.max():.2f}%")
             
+            # Add slippage-adjusted P&L statistics
+            if not pnl_slipped_data.empty:
+                print("\n💰 Slippage-Adjusted Profit/Loss Statistics:")
+                print(f"  Average P&L with slippage: {pnl_slipped_data.mean():.2f}%")
+                print(f"  Median P&L with slippage: {pnl_slipped_data.median():.2f}%")
+                print(f"  Min P&L with slippage: {pnl_slipped_data.min():.2f}%")
+                print(f"  Max P&L with slippage: {pnl_slipped_data.max():.2f}%")
+                print(f"  Average slippage impact: {contracts_df['slippage_impact_pct'].mean():.2f}%")
+            
             # Calculate dollar P&L statistics using contract multiplier
             contracts_df['pnl_per_share'] = contracts_df['exit_price'] - contracts_df['entry_option_price']
             # Apply contract multiplier for true dollar P&L
             contracts_df['pnl_dollars'] = contracts_df['pnl_per_share'] * contracts_df['shares_per_contract']
+            
+            # Now calculate dollar slippage impact
+            contracts_df['slippage_impact_dollars'] = contracts_df['pnl_dollars_slipped'] - contracts_df['pnl_dollars']
+            
             dollar_pnl_data = contracts_df['pnl_dollars'].dropna()
+            dollar_pnl_slipped_data = contracts_df['pnl_dollars_slipped'].dropna()
             
             if not dollar_pnl_data.empty:
                 print("\n💵 Dollar P&L Statistics (with contract multiplier):")
@@ -1353,23 +1389,49 @@ if all_contracts:
                 print(f"  Min P&L: ${dollar_pnl_data.min():.2f}")
                 print(f"  Max P&L: ${dollar_pnl_data.max():.2f}")
                 
+                # Add slippage-adjusted dollar P&L statistics
+                if not dollar_pnl_slipped_data.empty:
+                    print("\n💵 Slippage-Adjusted Dollar P&L Statistics (with contract multiplier):")
+                    print(f"  Average P&L with slippage: ${dollar_pnl_slipped_data.mean():.2f}")
+                    print(f"  Median P&L with slippage: ${dollar_pnl_slipped_data.median():.2f}")
+                    print(f"  Min P&L with slippage: ${dollar_pnl_slipped_data.min():.2f}")
+                    print(f"  Max P&L with slippage: ${dollar_pnl_slipped_data.max():.2f}")
+                    print(f"  Average slippage impact: ${contracts_df['slippage_impact_dollars'].mean():.2f} per contract")
+                
                 # Calculate total capital risked and total P&L with contract multiplier
                 total_pnl = dollar_pnl_data.sum()
+                total_pnl_slipped = dollar_pnl_slipped_data.sum()
                 total_risked = (contracts_df['entry_option_price'] * contracts_df['shares_per_contract']).sum()
+                total_risked_slipped = (contracts_df['entry_option_price_slipped'] * contracts_df['shares_per_contract']).sum()
                 
-                print(f"\n  Total capital risked: ${total_risked:.2f}")
-                print(f"  Total P&L: ${total_pnl:.2f} ({(total_pnl/total_risked*100):.2f}% return on risked capital)")
+                print(f"\n  Total capital risked (original): ${total_risked:.2f}")
+                print(f"  Total P&L (original): ${total_pnl:.2f} ({(total_pnl/total_risked*100):.2f}% return on risked capital)")
+                
+                print(f"  Total capital risked (with slippage): ${total_risked_slipped:.2f}")
+                print(f"  Total P&L (with slippage): ${total_pnl_slipped:.2f} ({(total_pnl_slipped/total_risked_slipped*100):.2f}% return on risked capital)")
+                print(f"  Total slippage cost: ${total_pnl - total_pnl_slipped:.2f}")
             
             # Calculate win rate
             profitable_trades = (pnl_data > 0).sum()
             win_rate = profitable_trades / len(pnl_data) * 100
-            print(f"  Win rate: {win_rate:.1f}% ({profitable_trades}/{len(pnl_data)})")
+            
+            # Calculate slippage-adjusted win rate
+            profitable_trades_slipped = (pnl_slipped_data > 0).sum()
+            win_rate_slipped = profitable_trades_slipped / len(pnl_slipped_data) * 100
+            
+            print(f"  Win rate (original): {win_rate:.1f}% ({profitable_trades}/{len(pnl_data)})")
+            print(f"  Win rate (with slippage): {win_rate_slipped:.1f}% ({profitable_trades_slipped}/{len(pnl_slipped_data)})")
             
             # Average P&L by exit reason
             print("\n  P&L by Exit Reason:")
             exit_pnl = contracts_df.groupby('exit_reason')['pnl_percent'].agg(['mean', 'count'])
+            
+            # Also calculate slippage-adjusted P&L by exit reason
+            exit_pnl_slipped = contracts_df.groupby('exit_reason')['pnl_percent_slipped'].agg(['mean', 'count'])
+            
             for reason, stats in exit_pnl.iterrows():
-                print(f"    {reason}: {stats['mean']:.2f}% avg ({stats['count']} trades)")
+                slipped_mean = exit_pnl_slipped.loc[reason, 'mean'] if reason in exit_pnl_slipped.index else float('nan')
+                print(f"    {reason}: {stats['mean']:.2f}% avg | With slippage: {slipped_mean:.2f}% ({stats['count']} trades)")
     
     # Add trade duration statistics
     if 'trade_duration_seconds' in contracts_df.columns:
@@ -1383,10 +1445,12 @@ if all_contracts:
             print(f"  Max duration: {duration_data.max():.1f} seconds")
     
     # Sample of contracts with entry and exit details
-    print("\n🔍 Sample of trades with P&L:")
-    display_columns = ['entry_time', 'option_type', 'strike_price', 'entry_option_price', 
-                       'exit_price', 'exit_reason', 'pnl_percent', 'trade_duration_seconds',
-                       'price_staleness_seconds', 'exit_price_staleness_seconds']
+    print("\n🔍 Sample of trades with P&L (original vs. slippage-adjusted):")
+    display_columns = ['entry_time', 'option_type', 'strike_price', 
+                       'entry_option_price', 'entry_option_price_slipped',
+                       'exit_price', 'exit_price_slipped',
+                       'pnl_percent', 'pnl_percent_slipped',
+                       'exit_reason', 'trade_duration_seconds']
     
     # Only include columns that exist
     existing_columns = [col for col in display_columns if col in contracts_df.columns]
