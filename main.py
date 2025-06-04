@@ -45,6 +45,9 @@ PARAMS = {
     'strikes_depth': 1,  # Number of strikes from ATM to target (1 = closest, 2 = second closest, etc.). Always use 1 or greater.
     'option_selection_mode': 'itm',  # Options: 'itm', 'otm', or 'atm' - determines whether to select in-the-money, out-of-money, or at-the-money options
     
+    # Position sizing
+    'contracts_per_trade': 1,  # Number of contracts to trade per signal (for P&L calculations)
+    
     # Data quality thresholds - for error checking
     'min_spy_data_rows': 10000,  # Minimum acceptable rows for SPY data
     'min_option_chain_rows': 10,  # Minimum acceptable rows for option chain data
@@ -1444,9 +1447,12 @@ if all_contracts:
     contracts_df['pnl_percent_slipped'] = ((contracts_df['exit_price_slipped'] - contracts_df['entry_option_price_slipped']) / 
                                            contracts_df['entry_option_price_slipped'] * 100)
     
+    # Get contracts per trade from PARAMS
+    CONTRACTS_PER_TRADE = PARAMS['contracts_per_trade']
+    
     # Calculate per-share and dollar P&L with slippage
     contracts_df['pnl_per_share_slipped'] = contracts_df['exit_price_slipped'] - contracts_df['entry_option_price_slipped']
-    contracts_df['pnl_dollars_slipped'] = contracts_df['pnl_per_share_slipped'] * contracts_df['shares_per_contract']
+    contracts_df['pnl_dollars_slipped'] = contracts_df['pnl_per_share_slipped'] * contracts_df['shares_per_contract'] * CONTRACTS_PER_TRADE
     
     # Calculate percentage impact (this one is fine to calculate here)
     contracts_df['slippage_impact_pct'] = contracts_df['pnl_percent_slipped'] - contracts_df['pnl_percent']
@@ -1468,6 +1474,9 @@ if all_contracts:
     print(f"  ATM contracts: {atm_count} ({atm_count/len(contracts_df)*100:.1f}%)")
     print(f"  ITM contracts: {itm_count} ({itm_count/len(contracts_df)*100:.1f}%)")
     print(f"  OTM contracts: {otm_count} ({otm_count/len(contracts_df)*100:.1f}%)")
+    
+    # Display contracts per trade info
+    print(f"  Contracts per trade: {CONTRACTS_PER_TRADE}")
     
     # Get trading day distribution
     print("\n📆 Trades by Day:")
@@ -1568,7 +1577,7 @@ if all_contracts:
             # Calculate dollar P&L statistics using contract multiplier
             contracts_df['pnl_per_share'] = contracts_df['exit_price'] - contracts_df['entry_option_price']
             # Apply contract multiplier for true dollar P&L
-            contracts_df['pnl_dollars'] = contracts_df['pnl_per_share'] * contracts_df['shares_per_contract']
+            contracts_df['pnl_dollars'] = contracts_df['pnl_per_share'] * contracts_df['shares_per_contract'] * CONTRACTS_PER_TRADE
             
             # Now calculate dollar slippage impact
             contracts_df['slippage_impact_dollars'] = contracts_df['pnl_dollars_slipped'] - contracts_df['pnl_dollars']
@@ -1595,11 +1604,12 @@ if all_contracts:
                 # Calculate total capital risked and total P&L with contract multiplier
                 total_pnl = dollar_pnl_data.sum()
                 total_pnl_slipped = dollar_pnl_slipped_data.sum()
-                total_risked = (contracts_df['entry_option_price'] * contracts_df['shares_per_contract']).sum()
-                total_risked_slipped = (contracts_df['entry_option_price_slipped'] * contracts_df['shares_per_contract']).sum()
+                total_risked = (contracts_df['entry_option_price'] * contracts_df['shares_per_contract'] * CONTRACTS_PER_TRADE).sum()
+                total_risked_slipped = (contracts_df['entry_option_price_slipped'] * contracts_df['shares_per_contract'] * CONTRACTS_PER_TRADE).sum()
                 
                 print(f"\n  Total capital risked (original): ${total_risked:.2f}")
                 print(f"  Total P&L (original): ${total_pnl:.2f} ({(total_pnl/total_risked*100):.2f}% return on risked capital)")
+                print(f"  Total contracts traded: {len(contracts_df) * CONTRACTS_PER_TRADE}")
                 
                 print(f"  Total capital risked (with slippage): ${total_risked_slipped:.2f}")
                 print(f"  Total P&L (with slippage): ${total_pnl_slipped:.2f} ({(total_pnl_slipped/total_risked_slipped*100):.2f}% return on risked capital)")
@@ -1658,7 +1668,7 @@ if all_contracts:
                        'entry_option_price', 'entry_option_price_slipped',
                        'original_exit_time', 'exit_time', 'exit_price', 'exit_price_slipped',
                        'pnl_percent', 'pnl_percent_slipped',
-                       'exit_reason', 'trade_duration_seconds', 'original_trade_duration_seconds']
+                       'exit_reason', 'trade_duration_seconds']
     
     # Only include columns that exist
     existing_columns = [col for col in display_columns if col in contracts_df.columns]
