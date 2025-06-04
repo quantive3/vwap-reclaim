@@ -48,6 +48,10 @@ PARAMS = {
     # Position sizing
     'contracts_per_trade': 1,  # Number of contracts to trade per signal (for P&L calculations)
     
+    # Transaction costs
+    'brokerage_fee_per_contract': 0.65,  # Brokerage fee per contract per direction (entry or exit)
+    'exchange_fee_per_contract': 0.65,   # Exchange and other fees per contract per direction
+    
     # Data quality thresholds - for error checking
     'min_spy_data_rows': 10000,  # Minimum acceptable rows for SPY data
     'min_option_chain_rows': 10,  # Minimum acceptable rows for option chain data
@@ -1595,8 +1599,26 @@ if all_contracts:
             # Now calculate dollar slippage impact
             contracts_df['slippage_impact_dollars'] = contracts_df['pnl_dollars_slipped'] - contracts_df['pnl_dollars']
             
+            # Calculate transaction costs
+            # Get fees from parameters
+            brokerage_fee = PARAMS.get('brokerage_fee_per_contract', 0.65)
+            exchange_fee = PARAMS.get('exchange_fee_per_contract', 0.65)
+            fee_per_contract_per_direction = brokerage_fee + exchange_fee
+            
+            # Calculate fees for entry and exit (per trade)
+            contracts_df['transaction_cost_entry'] = fee_per_contract_per_direction * CONTRACTS_PER_TRADE
+            contracts_df['transaction_cost_exit'] = fee_per_contract_per_direction * CONTRACTS_PER_TRADE
+            contracts_df['transaction_cost_total'] = contracts_df['transaction_cost_entry'] + contracts_df['transaction_cost_exit']
+            
+            # Calculate P&L with transaction costs
+            contracts_df['pnl_dollars_with_fees'] = contracts_df['pnl_dollars'] - contracts_df['transaction_cost_total']
+            contracts_df['pnl_dollars_slipped_with_fees'] = contracts_df['pnl_dollars_slipped'] - contracts_df['transaction_cost_total']
+            
+            # Prepare datasets for reporting
             dollar_pnl_data = contracts_df['pnl_dollars'].dropna()
             dollar_pnl_slipped_data = contracts_df['pnl_dollars_slipped'].dropna()
+            dollar_pnl_with_fees_data = contracts_df['pnl_dollars_with_fees'].dropna()
+            dollar_pnl_slipped_with_fees_data = contracts_df['pnl_dollars_slipped_with_fees'].dropna()
             
             if not dollar_pnl_data.empty:
                 print("\n💵 Dollar P&L Statistics (with contract multiplier):")
@@ -1614,11 +1636,31 @@ if all_contracts:
                     print(f"  Max P&L with slippage: ${dollar_pnl_slipped_data.max():.2f}")
                     print(f"  Average slippage impact: ${contracts_df['slippage_impact_dollars'].mean():.2f} per contract")
                 
+                # Add transaction cost statistics
+                if not dollar_pnl_with_fees_data.empty:
+                    print("\n💵 Transaction Cost-Adjusted P&L Statistics:")
+                    print(f"  Average transaction cost per trade: ${contracts_df['transaction_cost_total'].mean():.2f}")
+                    print(f"  Average P&L after fees: ${dollar_pnl_with_fees_data.mean():.2f}")
+                    print(f"  Median P&L after fees: ${dollar_pnl_with_fees_data.median():.2f}")
+                    print(f"  Min P&L after fees: ${dollar_pnl_with_fees_data.min():.2f}")
+                    print(f"  Max P&L after fees: ${dollar_pnl_with_fees_data.max():.2f}")
+                    
+                    # Add fully adjusted P&L (slippage + fees)
+                    if not dollar_pnl_slipped_with_fees_data.empty:
+                        print("\n💵 Fully Adjusted P&L Statistics (slippage + fees):")
+                        print(f"  Average P&L (slippage + fees): ${dollar_pnl_slipped_with_fees_data.mean():.2f}")
+                        print(f"  Median P&L (slippage + fees): ${dollar_pnl_slipped_with_fees_data.median():.2f}")
+                        print(f"  Min P&L (slippage + fees): ${dollar_pnl_slipped_with_fees_data.min():.2f}")
+                        print(f"  Max P&L (slippage + fees): ${dollar_pnl_slipped_with_fees_data.max():.2f}")
+                
                 # Calculate total capital risked and total P&L with contract multiplier
                 total_pnl = dollar_pnl_data.sum()
                 total_pnl_slipped = dollar_pnl_slipped_data.sum()
+                total_pnl_with_fees = dollar_pnl_with_fees_data.sum()
+                total_pnl_slipped_with_fees = dollar_pnl_slipped_with_fees_data.sum()
                 total_risked = (contracts_df['entry_option_price'] * contracts_df['shares_per_contract'] * CONTRACTS_PER_TRADE).sum()
                 total_risked_slipped = (contracts_df['entry_option_price_slipped'] * contracts_df['shares_per_contract'] * CONTRACTS_PER_TRADE).sum()
+                total_transaction_costs = contracts_df['transaction_cost_total'].sum()
                 
                 print(f"\n  Total capital risked (original): ${total_risked:.2f}")
                 print(f"  Total P&L (original): ${total_pnl:.2f} ({(total_pnl/total_risked*100):.2f}% return on risked capital)")
@@ -1627,6 +1669,10 @@ if all_contracts:
                 print(f"  Total capital risked (with slippage): ${total_risked_slipped:.2f}")
                 print(f"  Total P&L (with slippage): ${total_pnl_slipped:.2f} ({(total_pnl_slipped/total_risked_slipped*100):.2f}% return on risked capital)")
                 print(f"  Total slippage cost: ${total_pnl - total_pnl_slipped:.2f}")
+                
+                print(f"  Total transaction costs: ${total_transaction_costs:.2f}")
+                print(f"  Total P&L after fees: ${total_pnl_with_fees:.2f} ({(total_pnl_with_fees/total_risked*100):.2f}% return on risked capital)")
+                print(f"  Total P&L after slippage and fees: ${total_pnl_slipped_with_fees:.2f} ({(total_pnl_slipped_with_fees/total_risked_slipped*100):.2f}% return on risked capital)")
             
             # Calculate win rate
             profitable_trades = (pnl_data > 0).sum()
@@ -1636,8 +1682,24 @@ if all_contracts:
             profitable_trades_slipped = (pnl_slipped_data > 0).sum()
             win_rate_slipped = profitable_trades_slipped / len(pnl_slipped_data) * 100
             
+            # Calculate fee-adjusted win rates
+            if not dollar_pnl_with_fees_data.empty:
+                profitable_trades_with_fees = (dollar_pnl_with_fees_data > 0).sum()
+                win_rate_with_fees = profitable_trades_with_fees / len(dollar_pnl_with_fees_data) * 100
+                
+                # Calculate fully adjusted win rate (slippage + fees)
+                if not dollar_pnl_slipped_with_fees_data.empty:
+                    profitable_trades_slipped_with_fees = (dollar_pnl_slipped_with_fees_data > 0).sum()
+                    win_rate_slipped_with_fees = profitable_trades_slipped_with_fees / len(dollar_pnl_slipped_with_fees_data) * 100
+            
             print(f"  Win rate (original): {win_rate:.1f}% ({profitable_trades}/{len(pnl_data)})")
             print(f"  Win rate (with slippage): {win_rate_slipped:.1f}% ({profitable_trades_slipped}/{len(pnl_slipped_data)})")
+            
+            # Display fee-adjusted win rates if available
+            if not dollar_pnl_with_fees_data.empty:
+                print(f"  Win rate (with fees): {win_rate_with_fees:.1f}% ({profitable_trades_with_fees}/{len(dollar_pnl_with_fees_data)})")
+                if not dollar_pnl_slipped_with_fees_data.empty:
+                    print(f"  Win rate (with slippage + fees): {win_rate_slipped_with_fees:.1f}% ({profitable_trades_slipped_with_fees}/{len(dollar_pnl_slipped_with_fees_data)})")
             
             # Average P&L by exit reason
             print("\n  P&L by Exit Reason:")
@@ -1676,11 +1738,12 @@ if all_contracts:
         # Then compare the results between the two runs.
     
     # Sample of contracts with entry and exit details
-    print("\n🔍 Sample of trades with P&L (including latency and slippage):")
+    print("\n🔍 Sample of trades with P&L (including latency, slippage, and transaction costs):")
     display_columns = ['original_signal_time', 'entry_time', 'option_type', 'strike_price', 
                        'entry_option_price', 'entry_option_price_slipped',
                        'original_exit_time', 'exit_time', 'exit_price', 'exit_price_slipped',
                        'pnl_percent', 'pnl_percent_slipped',
+                       'transaction_cost_total', 'pnl_dollars', 'pnl_dollars_with_fees', 'pnl_dollars_slipped_with_fees',
                        'exit_reason', 'trade_duration_seconds']
     
     # Only include columns that exist
