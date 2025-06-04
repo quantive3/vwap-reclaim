@@ -78,17 +78,17 @@ def detect_stretch_signal(df_rth_filled, params):
     signals.drop(columns=['ts_obj'], inplace=True)
     signals = signals[signals['ts_raw'].notna()].sort_values("ts_raw").reset_index(drop=True)
 
-    if DEBUG_MODE:
-        print("\n🧹 Post-filter signal integrity check:")
-        print(f"  NaT timestamps: {signals['ts_raw'].isna().sum()}")
-        print(f"  Time ordered: {signals['ts_raw'].is_monotonic_increasing}")
+#    if DEBUG_MODE:
+#        print("\n🧹 Post-filter signal integrity check:")
+#        print(f"  NaT timestamps: {signals['ts_raw'].isna().sum()}")
+#        print(f"  Time ordered: {signals['ts_raw'].is_monotonic_increasing}")
 
         # Log the first 5 stretch labels for "above" and "below"
-    if DEBUG_MODE:
-        print("\nFirst 5 'Above' Stretch Signals:")
-        print(signals[signals['stretch_label'] == 'above'][['timestamp', 'close', 'vwap_running', 'percentage_stretch', 'stretch_label']].head())
-        print("\nFirst 5 'Below' Stretch Signals:")
-        print(signals[signals['stretch_label'] == 'below'][['timestamp', 'close', 'vwap_running', 'percentage_stretch', 'stretch_label']].head())
+#    if DEBUG_MODE:
+#        print("\nFirst 5 'Above' Stretch Signals:")
+#        print(signals[signals['stretch_label'] == 'above'][['timestamp', 'close', 'vwap_running', 'percentage_stretch', 'stretch_label']].head())
+#        print("\nFirst 5 'Below' Stretch Signals:")
+#        print(signals[signals['stretch_label'] == 'below'][['timestamp', 'close', 'vwap_running', 'percentage_stretch', 'stretch_label']].head())
     
     return signals
 
