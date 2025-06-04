@@ -18,8 +18,8 @@ import numpy as np
 # === STEP 6: Define Parameters ===
 PARAMS = {
     # Backtest period
-    'start_date': "2023-01-01",
-    'end_date': "2023-01-31",
+    'start_date': "2023-01-04",
+    'end_date': "2023-01-04",
     
     # Strategy parameters
     'stretch_threshold': 0.003,  # 0.3%
@@ -68,7 +68,7 @@ PARAMS = {
     'slippage_percent': 0.01,  # 1% slippage
     
     # Debug settings
-    'debug_mode': True,  # Enable/disable debug outputs
+    'debug_mode': False,  # Enable/disable debug outputs
 }
 
 # === STEP 6b: Initialize Issue Tracker ===
@@ -1874,6 +1874,12 @@ else:
 
 # Warning Summary
 print("\n⚠️ WARNING SUMMARY:")
+
+# Check if there are any warnings (excluding the 'details' list)
+total_warnings = sum(count for key, count in issue_tracker['warnings'].items() if key != 'details')
+if total_warnings > 0:
+    print("⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️")  # Print 10 warning symbols if any warnings exist
+
 ticker_warnings = issue_tracker['warnings'][f"no_{ticker}_data"]
 print(f"  - No {ticker} Data: {ticker_warnings}")
 print(f"  - Price staleness: {issue_tracker['warnings']['price_staleness']}")
@@ -1895,6 +1901,12 @@ if issue_tracker['warnings']['other'] > 0 and issue_tracker['warnings']['details
 
 # Error Summary
 print("\n❌ ERROR SUMMARY:")
+
+# Check if there are any errors (excluding the 'details' list)
+total_errors = sum(count for key, count in issue_tracker['errors'].items() if key != 'details')
+if total_errors > 0:
+    print("❌❌❌❌❌❌❌❌❌❌")  # Print 10 error symbols if any errors exist
+
 print(f"  - Missing option price data: {issue_tracker['errors']['missing_option_price_data']}")
 print(f"  - API connection failures: {issue_tracker['errors']['api_connection_failures']}")
 print(f"  - Missing exit data: {issue_tracker['errors']['missing_exit_data']}")
