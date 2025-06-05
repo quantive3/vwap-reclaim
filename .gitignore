@@ -1,3 +1,5 @@
 .cursor/
 commit archive - before gh/
 polygon_cache/
+secret.py
+__pycache__/

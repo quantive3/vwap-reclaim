@@ -4,8 +4,13 @@ import os
 # Create local cache directories
 CACHE_DIR = "./polygon_cache"  # Local cache directory
 
-# === STEP 2: Manual API Key Input ===
-API_KEY = input("🔑 Enter your Polygon API key: ").strip()
+# === STEP 2: API Key from Secret File ===
+try:
+    from secret import API_KEY
+    print("✅ API key loaded from secret.py")
+except ImportError:
+    # Fallback to manual input if secret.py is not available
+    API_KEY = input("🔑 Enter your Polygon API key (or create a secret.py file): ").strip()
 
 # === STEP 3: Imports and setup ===
 import pandas as pd
