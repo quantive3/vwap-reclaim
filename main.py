@@ -21,6 +21,42 @@ from datetime import time
 import hashlib
 import numpy as np
 
+def generate_dataframe_hash(df, name):
+    """
+    Generate a deterministic hash for a dataframe to verify consistency between runs.
+    Only runs when debug mode is enabled.
+    
+    Args:
+        df (pd.DataFrame): The dataframe to hash
+        name (str): Name of the dataframe for logging
+        
+    Returns:
+        str: Hash string
+    """
+    # Convert dataframe to string representation
+    # Sort by all columns to ensure consistent ordering
+    if not df.empty:
+        # Try to sort if possible (some dataframes may not be sortable)
+        try:
+            df_sorted = df.sort_values(by=list(df.columns))
+            df_str = df_sorted.to_string()
+        except:
+            # Fall back to unsorted string if sorting fails
+            df_str = df.to_string()
+    else:
+        df_str = "EMPTY_DATAFRAME"
+    
+    # Generate hash
+    hash_obj = hashlib.md5(df_str.encode())
+    hash_str = hash_obj.hexdigest()
+    
+    # Print hash info if in debug mode
+    if DEBUG_MODE:
+        print(f"🔐 {name} Hash: {hash_str}")
+        print(f"📊 {name} Shape: {df.shape}")
+    
+    return hash_str
+
 def initialize_parameters():
     """
     Initialize and return the strategy parameters dictionary.
@@ -31,8 +67,8 @@ def initialize_parameters():
     """
     return {
         # Backtest period
-        'start_date': "2023-01-01",
-        'end_date': "2023-01-31",
+        'start_date': "2023-01-04",
+        'end_date': "2023-01-04",
         
         # Strategy parameters
         'stretch_threshold': 0.003,  # 0.3%
@@ -81,7 +117,7 @@ def initialize_parameters():
         'slippage_percent': 0.01,  # 1% slippage
         
         # Debug settings
-        'debug_mode': False,  # Enable/disable debug outputs
+        'debug_mode': True,  # Enable/disable debug outputs
     }
 
 def initialize_issue_tracker(params):
@@ -1134,6 +1170,8 @@ for date_obj in business_days:
             df_rth_filled = pd.read_pickle(spy_path)
             if DEBUG_MODE:
                 print("📂 SPY data loaded from cache.")
+                # Generate and log hash for SPY data
+                generate_dataframe_hash(df_rth_filled, f"SPY {date}")
             if len(df_rth_filled) < PARAMS['min_spy_data_rows']:
                 short_data_msg = f"SPY data for {date} is unusually short with only {len(df_rth_filled)} rows. This may indicate incomplete data."
                 print(f"⚠️ {short_data_msg}")
@@ -1226,6 +1264,8 @@ for date_obj in business_days:
             df_rth_filled.to_pickle(spy_path)
             if DEBUG_MODE:
                 print("💾 SPY data pulled and cached.")
+                # Generate and log hash for SPY data
+                generate_dataframe_hash(df_rth_filled, f"SPY {date}")
 
         # === STEP 5b: Load or pull option chain ===
         chain_path = os.path.join(CHAIN_DIR, f"{ticker}_chain_{date}.pkl")
@@ -1233,6 +1273,8 @@ for date_obj in business_days:
             df_chain = pd.read_pickle(chain_path)
             if DEBUG_MODE:
                 print("📂 Option chain loaded from cache.")
+                # Generate and log hash for option chain data
+                generate_dataframe_hash(df_chain, f"Chain {date}")
             if len(df_chain) < PARAMS['min_option_chain_rows']:
                 short_data_msg = f"Option chain data for {date} is unusually short with only {len(df_chain)} rows. This may indicate incomplete data."
                 print(f"⚠️ {short_data_msg}")
@@ -1274,6 +1316,8 @@ for date_obj in business_days:
             df_chain.to_pickle(chain_path)
             if DEBUG_MODE:
                 print("💾 Option chain pulled and cached.")
+                # Generate and log hash for option chain data
+                generate_dataframe_hash(df_chain, f"Chain {date}")
 
         if df_chain.empty:
             no_data_msg = f"No option chain data for {date} — skipping."
