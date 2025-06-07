@@ -166,6 +166,202 @@ def setup_cache_directories(cache_dir):
         
     return spy_dir, chain_dir, option_dir
 
+def load_spy_data(date, cache_dir, api_key, params, debug_mode=False):
+    """
+    Load SPY price data for a given date, either from cache or from Polygon API.
+    
+    Args:
+        date (str): Date string in format 'YYYY-MM-DD'
+        cache_dir (str): Base cache directory
+        api_key (str): Polygon API key
+        params (dict): Strategy parameters
+        debug_mode (bool): Whether to print debug information
+        
+    Returns:
+        pd.DataFrame: DataFrame with SPY price and VWAP data for the specified date
+    """
+    ticker = params['ticker']
+    spy_dir = os.path.join(cache_dir, "spy")
+    spy_path = os.path.join(spy_dir, f"{ticker}_{date}.pkl")
+    
+    if os.path.exists(spy_path):
+        df_rth_filled = pd.read_pickle(spy_path)
+        if debug_mode:
+            print("📂 SPY data loaded from cache.")
+            # Generate and log hash for SPY data
+            generate_dataframe_hash(df_rth_filled, f"SPY {date}")
+        if len(df_rth_filled) < params['min_spy_data_rows']:
+            short_data_msg = f"SPY data for {date} is unusually short with only {len(df_rth_filled)} rows. This may indicate incomplete data."
+            print(f"⚠️ {short_data_msg}")
+            track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
+    else:
+        base_url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/second/{date}/{date}"
+        headers = {"Authorization": f"Bearer {api_key}"}
+
+        all_results = []
+        cursor = None
+        while True:
+            url = f"{base_url}?adjusted=true&limit=50000"
+            if cursor:
+                url += f"&cursor={cursor}"
+            response = requests.get(url, headers=headers)
+            if response.status_code != 200:
+                error_msg = f"SPY price request failed: {response.status_code}"
+                track_issue("errors", "api_connection_failures", error_msg, level="error", date=date)
+                raise Exception(error_msg)
+
+            json_data = response.json()
+            results = json_data.get("results", [])
+            all_results.extend(results)
+
+            if "next_url" in json_data:
+                cursor = json_data["next_url"].split("cursor=")[-1]
+            else:
+                break
+
+        if not all_results:
+            no_data_msg = f"No {ticker} data for {date} — skipping."
+            print(f"⚠️ {no_data_msg}")
+            track_issue("warnings", f"no_{ticker}_data", no_data_msg, date=date)
+            return None
+
+        df_raw = pd.DataFrame(all_results)
+        df_raw["timestamp"] = pd.to_datetime(df_raw["t"], unit="ms", utc=True).dt.tz_convert("US/Eastern")
+        df_raw.rename(columns={
+            "o": "open", "h": "high", "l": "low", "c": "close",
+            "v": "volume", "vw": "vw", "n": "trades"
+        }, inplace=True)
+        df_raw = df_raw[["timestamp", "open", "high", "low", "close", "volume", "vw", "trades"]]
+
+        df_rth = df_raw[
+            (df_raw["timestamp"].dt.time >= time(9, 30)) &
+            (df_raw["timestamp"].dt.time <= time(16, 0))
+        ].sort_values("timestamp").reset_index(drop=True)
+
+        start_time = pd.Timestamp(f"{date} 09:30:00", tz="US/Eastern")
+        end_time = pd.Timestamp(f"{date} 16:00:00", tz="US/Eastern")
+        full_index = pd.date_range(start=start_time, end=end_time, freq="1s", tz="US/Eastern")
+
+        df_rth_filled = df_rth.set_index("timestamp").reindex(full_index).ffill().reset_index()
+        df_rth_filled.rename(columns={"index": "timestamp"}, inplace=True)
+        df_rth_filled["ts_raw"] = df_rth_filled["timestamp"]
+        df_rth_filled["timestamp"] = df_rth_filled["timestamp"].dt.strftime("%Y-%m-%d %H:%M:%S %Z")
+        # === Updated VWAP using volume-weighted price (vw) ===
+        df_rth_filled["cum_pv"] = (df_rth_filled["vw"] * df_rth_filled["volume"]).cumsum()
+        df_rth_filled["cum_vol"] = df_rth_filled["volume"].cumsum()
+        df_rth_filled["vwap_running"] = df_rth_filled["cum_pv"] / df_rth_filled["cum_vol"]
+
+        if df_rth_filled["vwap_running"].isna().any():
+            error_msg = "NaNs detected in vwap_running — check data or ffill logic"
+            track_issue("errors", "other", error_msg, level="error", date=date)
+            raise ValueError(f"❌ {error_msg}")
+
+        if not df_rth_filled["vwap_running"].apply(lambda x: pd.notna(x) and np.isfinite(x)).all():
+            error_msg = "Non-finite values (inf/-inf) in vwap_running"
+            track_issue("errors", "other", error_msg, level="error", date=date)
+            raise ValueError(f"❌ {error_msg}")
+
+        # Check for NaNs and non-finite values in critical columns
+        critical_columns = ["open", "high", "low", "close", "volume", "vw"]
+        for column in critical_columns:
+            if df_rth_filled[column].isna().any():
+                error_msg = f"NaNs detected in {column} — check data integrity"
+                track_issue("errors", "other", error_msg, level="error", date=date)
+                raise ValueError(f"❌ {error_msg}")
+            if not df_rth_filled[column].apply(lambda x: pd.notna(x) and np.isfinite(x)).all():
+                error_msg = f"Non-finite values (inf/-inf) in {column} — check data integrity"
+                track_issue("errors", "other", error_msg, level="error", date=date)
+                raise ValueError(f"❌ {error_msg}")
+
+        if len(df_rth_filled) < params['min_spy_data_rows']:
+            short_data_msg = f"SPY data for {date} is unusually short with only {len(df_rth_filled)} rows after pulling from API. This may indicate incomplete data."
+            print(f"⚠️ {short_data_msg}")
+            track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
+
+        df_rth_filled.to_pickle(spy_path)
+        if debug_mode:
+            print("💾 SPY data pulled and cached.")
+            # Generate and log hash for SPY data
+            generate_dataframe_hash(df_rth_filled, f"SPY {date}")
+    
+    return df_rth_filled
+
+def load_chain_data(date, cache_dir, api_key, params, debug_mode=False):
+    """
+    Load option chain data for a given date, either from cache or from Polygon API.
+    
+    Args:
+        date (str): Date string in format 'YYYY-MM-DD'
+        cache_dir (str): Base cache directory
+        api_key (str): Polygon API key
+        params (dict): Strategy parameters
+        debug_mode (bool): Whether to print debug information
+        
+    Returns:
+        pd.DataFrame: DataFrame with option chain data for the specified date
+    """
+    ticker = params['ticker']
+    chain_dir = os.path.join(cache_dir, "chain")
+    chain_path = os.path.join(chain_dir, f"{ticker}_chain_{date}.pkl")
+    
+    if os.path.exists(chain_path):
+        df_chain = pd.read_pickle(chain_path)
+        if debug_mode:
+            print("📂 Option chain loaded from cache.")
+            # Generate and log hash for option chain data
+            generate_dataframe_hash(df_chain, f"Chain {date}")
+        if len(df_chain) < params['min_option_chain_rows']:
+            short_data_msg = f"Option chain data for {date} is unusually short with only {len(df_chain)} rows. This may indicate incomplete data."
+            print(f"⚠️ {short_data_msg}")
+            track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
+    else:
+        def fetch_chain(contract_type):
+            url = (
+                f"https://api.polygon.io/v3/reference/options/contracts"
+                f"?underlying_ticker={ticker}"
+                f"&contract_type={contract_type}"
+                f"&expiration_date.gte={date}"  # Greater than or equal to current date
+                f"&expiration_date.lte={date}"  # Less than or equal to current date (same day)
+                f"&as_of={date}"
+                f"&order=asc"
+                f"&limit=1000"
+                f"&sort=ticker"
+                f"&apiKey={api_key}"
+            )
+            resp = requests.get(url)
+            if resp.status_code != 200:
+                error_msg = f"{contract_type.upper()} request failed: {resp.status_code}"
+                track_issue("errors", "api_connection_failures", error_msg, level="error", date=date)
+                raise Exception(error_msg)
+            df = pd.DataFrame(resp.json().get("results", []))
+            df["option_type"] = contract_type
+            return df
+
+        df_calls = fetch_chain("call")
+        df_puts = fetch_chain("put")
+        df_chain = pd.concat([df_calls, df_puts], ignore_index=True)
+        df_chain["ticker_clean"] = df_chain["ticker"].str.replace("O:", "", regex=False)
+
+        # Check for unusually short data before caching
+        if len(df_chain) < params['min_option_chain_rows']:
+            short_data_msg = f"Option chain data for {date} is unusually short with only {len(df_chain)} rows after pulling from API. This may indicate incomplete data."
+            print(f"⚠️ {short_data_msg}")
+            track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
+
+        df_chain.to_pickle(chain_path)
+        if debug_mode:
+            print("💾 Option chain pulled and cached.")
+            # Generate and log hash for option chain data
+            generate_dataframe_hash(df_chain, f"Chain {date}")
+
+    if df_chain.empty:
+        no_data_msg = f"No option chain data for {date} — skipping."
+        print(f"⚠️ {no_data_msg}")
+        track_issue("warnings", "other", no_data_msg, date=date)
+        return None
+        
+    return df_chain
+
 # === STEP 6: Define Parameters ===
 # Get parameters from initialization function
 PARAMS = initialize_parameters()
@@ -1169,164 +1365,18 @@ for date_obj in business_days:
 
     try:
         # === STEP 5a: Load or pull SPY OHLCV ===
-        spy_path = os.path.join(SPY_DIR, f"{ticker}_{date}.pkl")
-        if os.path.exists(spy_path):
-            df_rth_filled = pd.read_pickle(spy_path)
-            if DEBUG_MODE:
-                print("📂 SPY data loaded from cache.")
-                # Generate and log hash for SPY data
-                generate_dataframe_hash(df_rth_filled, f"SPY {date}")
-            if len(df_rth_filled) < PARAMS['min_spy_data_rows']:
-                short_data_msg = f"SPY data for {date} is unusually short with only {len(df_rth_filled)} rows. This may indicate incomplete data."
-                print(f"⚠️ {short_data_msg}")
-                track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
-        else:
-            base_url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/second/{date}/{date}"
-            headers = {"Authorization": f"Bearer {API_KEY}"}
-
-            all_results = []
-            cursor = None
-            while True:
-                url = f"{base_url}?adjusted=true&limit=50000"
-                if cursor:
-                    url += f"&cursor={cursor}"
-                response = requests.get(url, headers=headers)
-                if response.status_code != 200:
-                    error_msg = f"SPY price request failed: {response.status_code}"
-                    track_issue("errors", "api_connection_failures", error_msg, level="error", date=date)
-                    raise Exception(error_msg)
-
-                json_data = response.json()
-                results = json_data.get("results", [])
-                all_results.extend(results)
-
-                if "next_url" in json_data:
-                    cursor = json_data["next_url"].split("cursor=")[-1]
-                else:
-                    break
-
-            if not all_results:
-                no_data_msg = f"No SPY data for {date} — skipping."
-                print(f"⚠️ {no_data_msg}")
-                track_issue("warnings", f"no_{ticker}_data", no_data_msg, date=date)
-                issue_tracker["days"]["skipped_warnings"] += 1
-                continue
-
-            df_raw = pd.DataFrame(all_results)
-            df_raw["timestamp"] = pd.to_datetime(df_raw["t"], unit="ms", utc=True).dt.tz_convert("US/Eastern")
-            df_raw.rename(columns={
-                "o": "open", "h": "high", "l": "low", "c": "close",
-                "v": "volume", "vw": "vw", "n": "trades"
-            }, inplace=True)
-            df_raw = df_raw[["timestamp", "open", "high", "low", "close", "volume", "vw", "trades"]]
-
-            df_rth = df_raw[
-                (df_raw["timestamp"].dt.time >= time(9, 30)) &
-                (df_raw["timestamp"].dt.time <= time(16, 0))
-            ].sort_values("timestamp").reset_index(drop=True)
-
-            start_time = pd.Timestamp(f"{date} 09:30:00", tz="US/Eastern")
-            end_time = pd.Timestamp(f"{date} 16:00:00", tz="US/Eastern")
-            full_index = pd.date_range(start=start_time, end=end_time, freq="1s", tz="US/Eastern")
-
-            df_rth_filled = df_rth.set_index("timestamp").reindex(full_index).ffill().reset_index()
-            df_rth_filled.rename(columns={"index": "timestamp"}, inplace=True)
-            df_rth_filled["ts_raw"] = df_rth_filled["timestamp"]
-            df_rth_filled["timestamp"] = df_rth_filled["timestamp"].dt.strftime("%Y-%m-%d %H:%M:%S %Z")
-            # === Updated VWAP using volume-weighted price (vw) ===
-            df_rth_filled["cum_pv"] = (df_rth_filled["vw"] * df_rth_filled["volume"]).cumsum()
-            df_rth_filled["cum_vol"] = df_rth_filled["volume"].cumsum()
-            df_rth_filled["vwap_running"] = df_rth_filled["cum_pv"] / df_rth_filled["cum_vol"]
-
-            if df_rth_filled["vwap_running"].isna().any():
-                error_msg = "NaNs detected in vwap_running — check data or ffill logic"
-                track_issue("errors", "other", error_msg, level="error", date=date)
-                raise ValueError(f"❌ {error_msg}")
-
-            if not df_rth_filled["vwap_running"].apply(lambda x: pd.notna(x) and np.isfinite(x)).all():
-                error_msg = "Non-finite values (inf/-inf) in vwap_running"
-                track_issue("errors", "other", error_msg, level="error", date=date)
-                raise ValueError(f"❌ {error_msg}")
-
-            # Check for NaNs and non-finite values in critical columns
-            critical_columns = ["open", "high", "low", "close", "volume", "vw"]
-            for column in critical_columns:
-                if df_rth_filled[column].isna().any():
-                    error_msg = f"NaNs detected in {column} — check data integrity"
-                    track_issue("errors", "other", error_msg, level="error", date=date)
-                    raise ValueError(f"❌ {error_msg}")
-                if not df_rth_filled[column].apply(lambda x: pd.notna(x) and np.isfinite(x)).all():
-                    error_msg = f"Non-finite values (inf/-inf) in {column} — check data integrity"
-                    track_issue("errors", "other", error_msg, level="error", date=date)
-                    raise ValueError(f"❌ {error_msg}")
-
-            if len(df_rth_filled) < PARAMS['min_spy_data_rows']:
-                short_data_msg = f"SPY data for {date} is unusually short with only {len(df_rth_filled)} rows after pulling from API. This may indicate incomplete data."
-                print(f"⚠️ {short_data_msg}")
-                track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
-
-            df_rth_filled.to_pickle(spy_path)
-            if DEBUG_MODE:
-                print("💾 SPY data pulled and cached.")
-                # Generate and log hash for SPY data
-                generate_dataframe_hash(df_rth_filled, f"SPY {date}")
+        df_rth_filled = load_spy_data(date, CACHE_DIR, API_KEY, PARAMS, debug_mode=DEBUG_MODE)
+        
+        # If data loading failed, skip this day
+        if df_rth_filled is None:
+            issue_tracker["days"]["skipped_warnings"] += 1
+            continue
 
         # === STEP 5b: Load or pull option chain ===
-        chain_path = os.path.join(CHAIN_DIR, f"{ticker}_chain_{date}.pkl")
-        if os.path.exists(chain_path):
-            df_chain = pd.read_pickle(chain_path)
-            if DEBUG_MODE:
-                print("📂 Option chain loaded from cache.")
-                # Generate and log hash for option chain data
-                generate_dataframe_hash(df_chain, f"Chain {date}")
-            if len(df_chain) < PARAMS['min_option_chain_rows']:
-                short_data_msg = f"Option chain data for {date} is unusually short with only {len(df_chain)} rows. This may indicate incomplete data."
-                print(f"⚠️ {short_data_msg}")
-                track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
-        else:
-            def fetch_chain(contract_type):
-                url = (
-                    f"https://api.polygon.io/v3/reference/options/contracts"
-                    f"?underlying_ticker={ticker}"
-                    f"&contract_type={contract_type}"
-                    f"&expiration_date.gte={date}"  # Greater than or equal to current date
-                    f"&expiration_date.lte={date}"  # Less than or equal to current date (same day)
-                    f"&as_of={date}"
-                    f"&order=asc"
-                    f"&limit=1000"
-                    f"&sort=ticker"
-                    f"&apiKey={API_KEY}"
-                )
-                resp = requests.get(url)
-                if resp.status_code != 200:
-                    error_msg = f"{contract_type.upper()} request failed: {resp.status_code}"
-                    track_issue("errors", "api_connection_failures", error_msg, level="error", date=date)
-                    raise Exception(error_msg)
-                df = pd.DataFrame(resp.json().get("results", []))
-                df["option_type"] = contract_type
-                return df
-
-            df_calls = fetch_chain("call")
-            df_puts = fetch_chain("put")
-            df_chain = pd.concat([df_calls, df_puts], ignore_index=True)
-            df_chain["ticker_clean"] = df_chain["ticker"].str.replace("O:", "", regex=False)
-
-            # Check for unusually short data before caching
-            if len(df_chain) < PARAMS['min_option_chain_rows']:
-                short_data_msg = f"Option chain data for {date} is unusually short with only {len(df_chain)} rows after pulling from API. This may indicate incomplete data."
-                print(f"⚠️ {short_data_msg}")
-                track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
-
-            df_chain.to_pickle(chain_path)
-            if DEBUG_MODE:
-                print("💾 Option chain pulled and cached.")
-                # Generate and log hash for option chain data
-                generate_dataframe_hash(df_chain, f"Chain {date}")
-
-        if df_chain.empty:
-            no_data_msg = f"No option chain data for {date} — skipping."
-            print(f"⚠️ {no_data_msg}")
-            track_issue("warnings", "other", no_data_msg, date=date)
+        df_chain = load_chain_data(date, CACHE_DIR, API_KEY, PARAMS, debug_mode=DEBUG_MODE)
+        
+        # If data loading failed, skip this day
+        if df_chain is None:
             issue_tracker["days"]["skipped_warnings"] += 1
             continue
 
