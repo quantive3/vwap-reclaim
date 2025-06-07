@@ -21,42 +21,6 @@ from datetime import time
 import hashlib
 import numpy as np
 
-def generate_dataframe_hash(df, name):
-    """
-    Generate a deterministic hash for a dataframe to verify consistency between runs.
-    Only runs when debug mode is enabled.
-    
-    Args:
-        df (pd.DataFrame): The dataframe to hash
-        name (str): Name of the dataframe for logging
-        
-    Returns:
-        str: Hash string
-    """
-    # Convert dataframe to string representation
-    # Sort by all columns to ensure consistent ordering
-    if not df.empty:
-        # Try to sort if possible (some dataframes may not be sortable)
-        try:
-            df_sorted = df.sort_values(by=list(df.columns))
-            df_str = df_sorted.to_string()
-        except:
-            # Fall back to unsorted string if sorting fails
-            df_str = df.to_string()
-    else:
-        df_str = "EMPTY_DATAFRAME"
-    
-    # Generate hash
-    hash_obj = hashlib.md5(df_str.encode())
-    hash_str = hash_obj.hexdigest()
-    
-    # Print hash info if in debug mode
-    if DEBUG_MODE:
-        print(f"🔐 {name} Hash: {hash_str}")
-        print(f"📊 {name} Shape: {df.shape}")
-    
-    return hash_str
-
 def initialize_parameters():
     """
     Initialize and return the strategy parameters dictionary.
@@ -208,6 +172,46 @@ PARAMS = initialize_parameters()
 
 # === STEP 6b: Initialize Issue Tracker ===
 issue_tracker = initialize_issue_tracker(PARAMS)
+
+# Function to generate hash for dataframe verification
+def generate_dataframe_hash(df, name):
+    """
+    Generate a deterministic hash for a dataframe to verify consistency between runs.
+    Only runs when debug mode is enabled to avoid impacting performance.
+    
+    Args:
+        df (pd.DataFrame): The dataframe to hash
+        name (str): Name of the dataframe for logging
+        
+    Returns:
+        str: Hash string if debug mode is on, empty string otherwise
+    """
+    # Skip entire process if debug mode is off
+    if not DEBUG_MODE:
+        return ""
+        
+    # Convert dataframe to string representation
+    # Sort by all columns to ensure consistent ordering
+    if not df.empty:
+        # Try to sort if possible (some dataframes may not be sortable)
+        try:
+            df_sorted = df.sort_values(by=list(df.columns))
+            df_str = df_sorted.to_string()
+        except:
+            # Fall back to unsorted string if sorting fails
+            df_str = df.to_string()
+    else:
+        df_str = "EMPTY_DATAFRAME"
+    
+    # Generate hash
+    hash_obj = hashlib.md5(df_str.encode())
+    hash_str = hash_obj.hexdigest()
+    
+    # Print hash info
+    print(f"🔐 {name} Hash: {hash_str}")
+    print(f"📊 {name} Shape: {df.shape}")
+    
+    return hash_str
 
 # Function to track issues
 def track_issue(category, subcategory, message, level="warning", date=None):
