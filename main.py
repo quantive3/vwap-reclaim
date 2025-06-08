@@ -1541,288 +1541,348 @@ total_entry_intent_signals = 0
 days_processed = 0
 all_contracts = []  # Master list to store all contract data
 
-# === STEP 8: Backtest loop ===
-for date_obj in business_days:
-    date = date_obj.strftime("%Y-%m-%d")
-    if DEBUG_MODE:
-        print(f"\n📅 Processing {date}...")
+# === STEP 8: Define the backtest function ===
+def run_backtest(params, api_key, cache_dir, issue_tracker):
+    """
+    Run a backtest over a date range using the specified parameters.
     
-    # Track day attempted
-    issue_tracker["days"]["attempted"] += 1
-
-    try:
-        # === STEP 5a: Load or pull SPY OHLCV ===
-        df_rth_filled = load_spy_data(date, CACHE_DIR, API_KEY, PARAMS, debug_mode=DEBUG_MODE)
+    Args:
+        params (dict): Dictionary of strategy parameters
+        api_key (str): Polygon API key
+        cache_dir (str): Base cache directory path
+        issue_tracker (dict): The issue tracking dictionary to use
         
-        # If data loading failed, skip this day
-        if df_rth_filled is None:
-            issue_tracker["days"]["skipped_warnings"] += 1
-            continue
-
-        # === STEP 5b: Load or pull option chain ===
-        df_chain = load_chain_data(date, CACHE_DIR, API_KEY, PARAMS, debug_mode=DEBUG_MODE)
+    Returns:
+        dict: Summary metrics from the backtest
+    """
+    # Setup cache directories
+    spy_dir, chain_dir, option_dir = setup_cache_directories(cache_dir)
+    
+    # Get parameters
+    debug_mode = params['debug_mode']
+    start_date = params['start_date']
+    end_date = params['end_date']
+    business_days = pd.date_range(start=start_date, end=end_date, freq="B")
+    ticker = params['ticker']
+    
+    # Initialize tracking variables
+    total_entry_intent_signals = 0
+    days_processed = 0
+    all_contracts = []  # Master list to store all contract data
+    
+    # === Backtest loop ===
+    for date_obj in business_days:
+        date = date_obj.strftime("%Y-%m-%d")
+        if debug_mode:
+            print(f"\n📅 Processing {date}...")
         
-        # If data loading failed, skip this day
-        if df_chain is None:
-            issue_tracker["days"]["skipped_warnings"] += 1
-            continue
+        # Track day attempted
+        issue_tracker["days"]["attempted"] += 1
 
-        # === Insert strategy logic here ===
-        stretch_signals = detect_stretch_signal(df_rth_filled, PARAMS)
+        try:
+            # === STEP 5a: Load or pull SPY OHLCV ===
+            df_rth_filled = load_spy_data(date, cache_dir, api_key, params, debug_mode=debug_mode)
+            
+            # If data loading failed, skip this day
+            if df_rth_filled is None:
+                issue_tracker["days"]["skipped_warnings"] += 1
+                continue
 
-        # Log if no stretch signals are detected
-        if stretch_signals.empty:
-            no_signals_msg = f"No stretch signals detected for {date} — skipping."
-            print(f"⚠️ {no_signals_msg}")
-            # This is normal behavior, not a warning
-            continue
+            # === STEP 5b: Load or pull option chain ===
+            df_chain = load_chain_data(date, cache_dir, api_key, params, debug_mode=debug_mode)
+            
+            # If data loading failed, skip this day
+            if df_chain is None:
+                issue_tracker["days"]["skipped_warnings"] += 1
+                continue
 
-        stretch_signals = detect_partial_reclaims(df_rth_filled, stretch_signals, PARAMS)
-        
-        # Ensure 'entry_intent' column exists
-        if 'entry_intent' not in stretch_signals.columns:
-            error_msg = f"'entry_intent' column missing for {date} — skipping."
-            print(f"⚠️ {error_msg}")
+            # === Insert strategy logic here ===
+            stretch_signals = detect_stretch_signal(df_rth_filled, params)
+
+            # Log if no stretch signals are detected
+            if stretch_signals.empty:
+                no_signals_msg = f"No stretch signals detected for {date} — skipping."
+                print(f"⚠️ {no_signals_msg}")
+                # This is normal behavior, not a warning
+                continue
+
+            stretch_signals = detect_partial_reclaims(df_rth_filled, stretch_signals, params)
+            
+            # Ensure 'entry_intent' column exists
+            if 'entry_intent' not in stretch_signals.columns:
+                error_msg = f"'entry_intent' column missing for {date} — skipping."
+                print(f"⚠️ {error_msg}")
+                track_issue("errors", "other", error_msg, level="error", date=date)
+                issue_tracker["days"]["skipped_errors"] += 1
+                continue
+
+            # Filter for valid entry signals
+            valid_entries = stretch_signals[stretch_signals['entry_intent'] == True]
+            
+            # Track opportunity stats
+            total_signals = len(stretch_signals)
+            total_valid_entries = len(valid_entries)
+            issue_tracker["opportunities"]["total_stretch_signals"] += total_signals
+            issue_tracker["opportunities"]["valid_entry_opportunities"] += total_valid_entries
+            
+            # Initialize container for daily contracts
+            daily_contracts = []
+            
+            # MODIFIED: Process ALL valid entries instead of just the first one
+            if not valid_entries.empty:
+                if debug_mode:
+                    print(f"✅ Found {len(valid_entries)} valid entry signals for {date}")
+                
+                # Process each valid entry signal
+                for idx, entry_signal in valid_entries.iterrows():
+                    entry_time = entry_signal['reclaim_ts']
+                    
+                    # FAILSAFE: Check for late entry cutoff first (blocks entries that are too late in the day)
+                    is_blocked, block_message = check_late_entry_cutoff(entry_time, params)
+                    if is_blocked:
+                        print(f"⛔ {block_message}")
+                        
+                        # Track this in risk management stats
+                        current_date = entry_time.strftime("%Y-%m-%d")
+                        issue_tracker["risk_management"]["late_entries_blocked"] += 1
+                        issue_tracker["risk_management"]["late_entry_dates"].add(current_date)
+                        
+                        # Skip this entry and continue to next signal
+                        continue
+                    
+                    entry_price = entry_signal['reclaim_price']
+                    
+                    # IMPORTANT: Store original signal time and SPY price at signal time (before latency)
+                    original_signal_time = entry_time  # entry_time is reclaim_ts at this point
+                    spy_price_at_signal = df_rth_filled[df_rth_filled['ts_raw'] == original_signal_time]['close'].iloc[0]
+                    
+                    # Select appropriate option contract using SPY price at SIGNAL time
+                    # CHANGED: Using SPY price at signal time (not execution time) for contract selection
+                    # This prevents look-ahead bias by ensuring we only use information available at signal time
+                    # to decide which option contract to trade
+                    selected_contract = select_option_contract(entry_signal, df_chain, spy_price_at_signal, params)
+                    
+                    # Get SPY price at entry for logging/reporting purposes (after latency will be applied)
+                    spy_price_at_entry = df_rth_filled[df_rth_filled['ts_raw'] == entry_time]['close'].iloc[0]
+                    
+                    # We'll add the look-ahead bias verification log after latency is applied
+                    
+                    if selected_contract:
+                        # Now we need to load the option price data for the selected contract
+                        option_ticker = selected_contract['ticker']
+                        
+                        # === STEP 5d: Load or pull option price data ===
+                        df_option_aligned, option_entry_price, option_load_status = load_option_data(
+                            option_ticker=option_ticker,
+                            date=date,
+                            cache_dir=cache_dir,
+                            df_rth_filled=df_rth_filled,
+                            api_key=api_key,
+                            params=params,
+                            signal_idx=idx
+                        )
+                        
+                        # Check if option data loading was successful
+                        if not option_load_status['success']:
+                            # If we had an error loading the option data, skip this entry
+                            continue
+                        
+                        # Capture the original price at original timestamp before applying latency
+                        original_option_row = df_option_aligned[df_option_aligned['ts_raw'] == original_signal_time]
+                        original_price = None
+                        if not original_option_row.empty:
+                            if pd.notna(original_option_row['vwap'].iloc[0]):
+                                original_price = original_option_row['vwap'].iloc[0]
+                            elif pd.notna(original_option_row['close'].iloc[0]):
+                                original_price = original_option_row['close'].iloc[0]
+
+                        # Apply latency to entry if configured
+                        latency_seconds = params.get('latency_seconds', 0)
+                        if latency_seconds > 0:
+                            latency_result = apply_latency(original_signal_time, df_option_aligned, latency_seconds)
+                            
+                            if latency_result['is_valid']:
+                                # Use delayed time and price
+                                entry_time = latency_result['delayed_timestamp']
+                                option_entry_price = latency_result['delayed_price']
+                                option_row = df_option_aligned[df_option_aligned['ts_raw'] == entry_time]
+                                
+                                # Update spy_price_at_entry after latency applied
+                                spy_price_at_entry = df_rth_filled[df_rth_filled['ts_raw'] == entry_time]['close'].iloc[0]
+                                
+                                # Check if we had to use close price instead of VWAP in the latency result
+                                if 'vwap' in latency_result['delayed_row'] and pd.isna(latency_result['delayed_row']['vwap']):
+                                    # Log the fallback to close price
+                                    fallback_msg = f"Falling back to close price for latency-adjusted entry at {entry_time} - VWAP not available"
+                                    if debug_mode:
+                                        print(f"⚠️ {fallback_msg}")
+                                    track_issue("warnings", "vwap_fallback_to_close", fallback_msg, date=date)
+                                
+                                if debug_mode:
+                                    # Log look-ahead bias fix verification (after latency applied)
+                                    print(f"🔍 Look-ahead bias fix verification:")
+                                    print(f"   Signal time: {original_signal_time.strftime('%H:%M:%S')}, SPY price: ${spy_price_at_signal:.4f}")
+                                    print(f"   Entry time:  {entry_time.strftime('%H:%M:%S')}, SPY price: ${spy_price_at_entry:.4f}")
+                                    print(f"   Using signal time price for option contract selection")
+                                    
+                                    print(f"🕒 Entry latency applied: {latency_seconds}s")
+                                    print(f"   Original signal: {original_signal_time.strftime('%H:%M:%S')}")
+                                    print(f"   Execution time: {entry_time.strftime('%H:%M:%S')}")
+                                    if original_price is not None:
+                                        # Now correctly comparing delayed price with original price
+                                        print(f"   Price difference: ${latency_result['delayed_price'] - original_price:.4f}")
+                                    else:
+                                        print(f"   Price difference: Unable to calculate - original price data not found")
+                            else:
+                                # If we can't find data at the delayed timestamp, skip this entry
+                                latency_error_msg = f"No option price data after applying entry latency of {latency_seconds}s from {original_signal_time}"
+                                print(f"⚠️ {latency_error_msg}")
+                                track_issue("errors", "latency_entry_failures", latency_error_msg, level="error", date=date)
+                                issue_tracker["opportunities"]["failed_entries_data_issues"] += 1
+                                continue
+                        else:
+                            # Original logic without latency
+                            option_row = df_option_aligned[df_option_aligned['ts_raw'] == entry_time]
+                            
+                            if option_row.empty:
+                                missing_price_msg = f"Could not find option price for entry at {entry_time} - skipping this entry"
+                                print(f"⚠️ {missing_price_msg}")
+                                track_issue("errors", "missing_option_price_data", missing_price_msg, level="error", date=date)
+                                issue_tracker["opportunities"]["failed_entries_data_issues"] += 1
+                                continue
+                            
+                            # Extract entry price for the option (with fallback to close)
+                            if pd.notna(option_row['vwap'].iloc[0]):
+                                option_entry_price = option_row['vwap'].iloc[0]
+                            elif pd.notna(option_row['close'].iloc[0]):
+                                # Log the fallback to close price
+                                fallback_msg = f"Falling back to close price for entry at {entry_time} - VWAP not available"
+                                if debug_mode:
+                                    print(f"⚠️ {fallback_msg}")
+                                track_issue("warnings", "vwap_fallback_to_close", fallback_msg, date=date)
+                                option_entry_price = option_row['close'].iloc[0]
+                            else:
+                                # Neither VWAP nor close is valid - skip this entry
+                                missing_price_msg = f"Both VWAP and close prices missing for entry at {entry_time} - skipping this entry"
+                                print(f"⚠️ {missing_price_msg}")
+                                track_issue("errors", "missing_option_price_data", missing_price_msg, level="error", date=date)
+                                issue_tracker["opportunities"]["failed_entries_data_issues"] += 1
+                                continue
+                        
+                        # Check price staleness at entry
+                        staleness_threshold = params['price_staleness_threshold_seconds']
+                        price_staleness = option_row['seconds_since_update'].iloc[0]
+                        is_price_stale = price_staleness > staleness_threshold
+                        
+                        if is_price_stale and params['report_stale_prices']:
+                            staleness_msg = f"Signal #{idx+1}: Using stale option price at entry - {price_staleness:.1f} seconds old"
+                            print(f"⚠️ {staleness_msg}")
+                            track_issue("warnings", "price_staleness", staleness_msg, date=date)
+                        
+                        # Store contract with complete entry details
+                        contract_with_entry = {
+                            **selected_contract,
+                            'entry_time': entry_time,
+                            'original_signal_time': original_signal_time,
+                            'latency_seconds': params.get('latency_seconds', 0),
+                            'latency_applied': params.get('latency_seconds', 0) > 0,
+                            'entry_spy_price': spy_price_at_entry,
+                            'spy_price_at_signal': spy_price_at_signal,  # Add this one new field 
+                            'entry_option_price': option_entry_price,
+                            'price_staleness_seconds': price_staleness,
+                            'is_price_stale': is_price_stale,
+                            'signal_number': idx + 1,  # Add signal sequence number for reference
+                            'df_option_aligned': df_option_aligned,  # Save aligned option data for later use
+                            'entry_signal': entry_signal.to_dict()
+                        }
+                        
+                        # Process exits for this contract
+                        contract_with_entry = process_exits_for_contract(contract_with_entry, params)
+                        
+                        # Memory optimization: Clean up df_option_aligned after exit processing is complete
+                        # This prevents memory accumulation when processing multiple trades within a day
+                        if 'df_option_aligned' in contract_with_entry:
+                            del contract_with_entry['df_option_aligned']
+                        
+                        daily_contracts.append(contract_with_entry)
+                        
+                        # Track option contract selection
+                        issue_tracker["opportunities"]["total_options_contracts"] += 1
+                        
+                        # Note: No longer deleting df_option_aligned here, will clean up after all processing
+            
+            # Count the number of entry intent signals for the day
+            daily_entry_intent_signals = stretch_signals['entry_intent'].sum()
+            total_entry_intent_signals += daily_entry_intent_signals
+            days_processed += 1
+            
+            # Track successfully processed day
+            issue_tracker["days"]["processed"] += 1
+
+            if debug_mode:
+                print(f"🎯 Entry intent signals (valid reclaims): {daily_entry_intent_signals}")
+                # UPDATED: Report successful entries vs attempted entries
+                successful_entries = len(daily_contracts)
+                print(f"💰 Successful contract entries: {successful_entries}/{daily_entry_intent_signals} ({(successful_entries/daily_entry_intent_signals*100):.1f}% success rate)" if daily_entry_intent_signals > 0 else "💰 No valid entry signals to process")
+                
+                # UPDATED: Show contract details for all entries instead of just the first one
+                if daily_contracts:
+                    print("\n   Contract details for each entry:")
+                    for i, contract in enumerate(daily_contracts):
+                        print(f"   [{i+1}] {contract['option_type'].upper()} option: {contract['ticker']}")
+                        print(f"       Strike: {contract['strike_price']}, Entry price: ${contract['entry_option_price']:.2f}")
+                        print(f"       Entry time: {contract['entry_time'].strftime('%H:%M:%S')}")
+                
+                # Log the daily breakdown of stretch signals
+                above_count = len(stretch_signals[stretch_signals['stretch_label'] == 'above'])
+                below_count = len(stretch_signals[stretch_signals['stretch_label'] == 'below'])
+                total_count = len(stretch_signals)
+                print(f"🔍 Detected {total_count} stretch signals on {date} (Above: {above_count}, Below: {below_count}).")
+
+            # Add daily contracts to the master list
+            if daily_contracts:
+                # For each contract in the daily list, clean up memory and add to master list
+                for contract in daily_contracts:
+                    # Add to our master list of all contracts
+                    all_contracts.append(contract)
+
+        except Exception as e:
+            error_msg = f"{date} — Error: {str(e)}"
+            print(f"❌ {error_msg}")
             track_issue("errors", "other", error_msg, level="error", date=date)
             issue_tracker["days"]["skipped_errors"] += 1
             continue
-
-        # Filter for valid entry signals
-        valid_entries = stretch_signals[stretch_signals['entry_intent'] == True]
+    
+    # Prepare summary metrics
+    summary_metrics = {
+        'total_days_processed': days_processed,
+        'total_entry_intent_signals': total_entry_intent_signals,
+        'total_contracts': len(all_contracts),
+        'all_contracts': all_contracts
+    }
+    
+    # Calculate and add average entry intent signals
+    if days_processed > 0:
+        summary_metrics['average_entry_intent_signals'] = total_entry_intent_signals / days_processed
         
-        # Track opportunity stats
-        total_signals = len(stretch_signals)
-        total_valid_entries = len(valid_entries)
-        issue_tracker["opportunities"]["total_stretch_signals"] += total_signals
-        issue_tracker["opportunities"]["valid_entry_opportunities"] += total_valid_entries
-        
-        # Initialize container for daily contracts
-        daily_contracts = []
-        
-        # MODIFIED: Process ALL valid entries instead of just the first one
-        if not valid_entries.empty:
-            if DEBUG_MODE:
-                print(f"✅ Found {len(valid_entries)} valid entry signals for {date}")
-            
-            # Process each valid entry signal
-            for idx, entry_signal in valid_entries.iterrows():
-                entry_time = entry_signal['reclaim_ts']
-                
-                # FAILSAFE: Check for late entry cutoff first (blocks entries that are too late in the day)
-                is_blocked, block_message = check_late_entry_cutoff(entry_time, PARAMS)
-                if is_blocked:
-                    print(f"⛔ {block_message}")
-                    
-                    # Track this in risk management stats
-                    current_date = entry_time.strftime("%Y-%m-%d")
-                    issue_tracker["risk_management"]["late_entries_blocked"] += 1
-                    issue_tracker["risk_management"]["late_entry_dates"].add(current_date)
-                    
-                    # Skip this entry and continue to next signal
-                    continue
-                
-                entry_price = entry_signal['reclaim_price']
-                
-                # IMPORTANT: Store original signal time and SPY price at signal time (before latency)
-                original_signal_time = entry_time  # entry_time is reclaim_ts at this point
-                spy_price_at_signal = df_rth_filled[df_rth_filled['ts_raw'] == original_signal_time]['close'].iloc[0]
-                
-                # Select appropriate option contract using SPY price at SIGNAL time
-                # CHANGED: Using SPY price at signal time (not execution time) for contract selection
-                # This prevents look-ahead bias by ensuring we only use information available at signal time
-                # to decide which option contract to trade
-                selected_contract = select_option_contract(entry_signal, df_chain, spy_price_at_signal, PARAMS)
-                
-                # Get SPY price at entry for logging/reporting purposes (after latency will be applied)
-                spy_price_at_entry = df_rth_filled[df_rth_filled['ts_raw'] == entry_time]['close'].iloc[0]
-                
-                # We'll add the look-ahead bias verification log after latency is applied
-                
-                if selected_contract:
-                    # Now we need to load the option price data for the selected contract
-                    option_ticker = selected_contract['ticker']
-                    
-                    # === STEP 5d: Load or pull option price data ===
-                    df_option_aligned, option_entry_price, option_load_status = load_option_data(
-                        option_ticker=option_ticker,
-                        date=date,
-                        cache_dir=CACHE_DIR,
-                        df_rth_filled=df_rth_filled,
-                        api_key=API_KEY,
-                        params=PARAMS,
-                        signal_idx=idx
-                    )
-                    
-                    # Check if option data loading was successful
-                    if not option_load_status['success']:
-                        # If we had an error loading the option data, skip this entry
-                        continue
-                    
-                    # Capture the original price at original timestamp before applying latency
-                    original_option_row = df_option_aligned[df_option_aligned['ts_raw'] == original_signal_time]
-                    original_price = None
-                    if not original_option_row.empty:
-                        if pd.notna(original_option_row['vwap'].iloc[0]):
-                            original_price = original_option_row['vwap'].iloc[0]
-                        elif pd.notna(original_option_row['close'].iloc[0]):
-                            original_price = original_option_row['close'].iloc[0]
+        # Calculate average successful entries per day
+        if all_contracts:
+            summary_metrics['average_entries_per_day'] = len(all_contracts) / days_processed
+            if total_entry_intent_signals > 0:
+                summary_metrics['success_rate'] = len(all_contracts) / total_entry_intent_signals * 100
+            else:
+                summary_metrics['success_rate'] = 0
+    
+    return summary_metrics
 
-                    # Apply latency to entry if configured
-                    latency_seconds = PARAMS.get('latency_seconds', 0)
-                    if latency_seconds > 0:
-                        latency_result = apply_latency(original_signal_time, df_option_aligned, latency_seconds)
-                        
-                        if latency_result['is_valid']:
-                            # Use delayed time and price
-                            entry_time = latency_result['delayed_timestamp']
-                            option_entry_price = latency_result['delayed_price']
-                            option_row = df_option_aligned[df_option_aligned['ts_raw'] == entry_time]
-                            
-                            # Update spy_price_at_entry after latency applied
-                            spy_price_at_entry = df_rth_filled[df_rth_filled['ts_raw'] == entry_time]['close'].iloc[0]
-                            
-                            # Check if we had to use close price instead of VWAP in the latency result
-                            if 'vwap' in latency_result['delayed_row'] and pd.isna(latency_result['delayed_row']['vwap']):
-                                # Log the fallback to close price
-                                fallback_msg = f"Falling back to close price for latency-adjusted entry at {entry_time} - VWAP not available"
-                                if DEBUG_MODE:
-                                    print(f"⚠️ {fallback_msg}")
-                                track_issue("warnings", "vwap_fallback_to_close", fallback_msg, date=date)
-                            
-                            if DEBUG_MODE:
-                                # Log look-ahead bias fix verification (after latency applied)
-                                print(f"🔍 Look-ahead bias fix verification:")
-                                print(f"   Signal time: {original_signal_time.strftime('%H:%M:%S')}, SPY price: ${spy_price_at_signal:.4f}")
-                                print(f"   Entry time:  {entry_time.strftime('%H:%M:%S')}, SPY price: ${spy_price_at_entry:.4f}")
-                                print(f"   Using signal time price for option contract selection")
-                                
-                                print(f"🕒 Entry latency applied: {latency_seconds}s")
-                                print(f"   Original signal: {original_signal_time.strftime('%H:%M:%S')}")
-                                print(f"   Execution time: {entry_time.strftime('%H:%M:%S')}")
-                                if original_price is not None:
-                                    # Now correctly comparing delayed price with original price
-                                    print(f"   Price difference: ${latency_result['delayed_price'] - original_price:.4f}")
-                                else:
-                                    print(f"   Price difference: Unable to calculate - original price data not found")
-                        else:
-                            # If we can't find data at the delayed timestamp, skip this entry
-                            latency_error_msg = f"No option price data after applying entry latency of {latency_seconds}s from {original_signal_time}"
-                            print(f"⚠️ {latency_error_msg}")
-                            track_issue("errors", "latency_entry_failures", latency_error_msg, level="error", date=date)
-                            issue_tracker["opportunities"]["failed_entries_data_issues"] += 1
-                            continue
-                    else:
-                        # Original logic without latency
-                        option_row = df_option_aligned[df_option_aligned['ts_raw'] == entry_time]
-                        
-                        if option_row.empty:
-                            missing_price_msg = f"Could not find option price for entry at {entry_time} - skipping this entry"
-                            print(f"⚠️ {missing_price_msg}")
-                            track_issue("errors", "missing_option_price_data", missing_price_msg, level="error", date=date)
-                            issue_tracker["opportunities"]["failed_entries_data_issues"] += 1
-                            continue
-                        
-                        # Extract entry price for the option (with fallback to close)
-                        if pd.notna(option_row['vwap'].iloc[0]):
-                            option_entry_price = option_row['vwap'].iloc[0]
-                        elif pd.notna(option_row['close'].iloc[0]):
-                            # Log the fallback to close price
-                            fallback_msg = f"Falling back to close price for entry at {entry_time} - VWAP not available"
-                            if DEBUG_MODE:
-                                print(f"⚠️ {fallback_msg}")
-                            track_issue("warnings", "vwap_fallback_to_close", fallback_msg, date=date)
-                            option_entry_price = option_row['close'].iloc[0]
-                        else:
-                            # Neither VWAP nor close is valid - skip this entry
-                            missing_price_msg = f"Both VWAP and close prices missing for entry at {entry_time} - skipping this entry"
-                            print(f"⚠️ {missing_price_msg}")
-                            track_issue("errors", "missing_option_price_data", missing_price_msg, level="error", date=date)
-                            issue_tracker["opportunities"]["failed_entries_data_issues"] += 1
-                            continue
-                    
-                    # Check price staleness at entry
-                    staleness_threshold = PARAMS['price_staleness_threshold_seconds']
-                    price_staleness = option_row['seconds_since_update'].iloc[0]
-                    is_price_stale = price_staleness > staleness_threshold
-                    
-                    if is_price_stale and PARAMS['report_stale_prices']:
-                        staleness_msg = f"Signal #{idx+1}: Using stale option price at entry - {price_staleness:.1f} seconds old"
-                        print(f"⚠️ {staleness_msg}")
-                        track_issue("warnings", "price_staleness", staleness_msg, date=date)
-                    
-                    # Store contract with complete entry details
-                    contract_with_entry = {
-                        **selected_contract,
-                        'entry_time': entry_time,
-                        'original_signal_time': original_signal_time,
-                        'latency_seconds': PARAMS.get('latency_seconds', 0),
-                        'latency_applied': PARAMS.get('latency_seconds', 0) > 0,
-                        'entry_spy_price': spy_price_at_entry,
-                        'spy_price_at_signal': spy_price_at_signal,  # Add this one new field 
-                        'entry_option_price': option_entry_price,
-                        'price_staleness_seconds': price_staleness,
-                        'is_price_stale': is_price_stale,
-                        'signal_number': idx + 1,  # Add signal sequence number for reference
-                        'df_option_aligned': df_option_aligned,  # Save aligned option data for later use
-                        'entry_signal': entry_signal.to_dict()
-                    }
-                    
-                    # Process exits for this contract
-                    contract_with_entry = process_exits_for_contract(contract_with_entry, PARAMS)
-                    
-                    # Memory optimization: Clean up df_option_aligned after exit processing is complete
-                    # This prevents memory accumulation when processing multiple trades within a day
-                    if 'df_option_aligned' in contract_with_entry:
-                        del contract_with_entry['df_option_aligned']
-                    
-                    daily_contracts.append(contract_with_entry)
-                    
-                    # Track option contract selection
-                    issue_tracker["opportunities"]["total_options_contracts"] += 1
-                    
-                    # Note: No longer deleting df_option_aligned here, will clean up after all processing
-        
-        # Count the number of entry intent signals for the day
-        daily_entry_intent_signals = stretch_signals['entry_intent'].sum()
-        total_entry_intent_signals += daily_entry_intent_signals
-        days_processed += 1
-        
-        # Track successfully processed day
-        issue_tracker["days"]["processed"] += 1
+# === STEP 8: Run backtest ===
+# Run the backtest
+backtest_results = run_backtest(PARAMS, API_KEY, CACHE_DIR, issue_tracker)
 
-        if DEBUG_MODE:
-            print(f"🎯 Entry intent signals (valid reclaims): {daily_entry_intent_signals}")
-            # UPDATED: Report successful entries vs attempted entries
-            successful_entries = len(daily_contracts)
-            print(f"💰 Successful contract entries: {successful_entries}/{daily_entry_intent_signals} ({(successful_entries/daily_entry_intent_signals*100):.1f}% success rate)" if daily_entry_intent_signals > 0 else "💰 No valid entry signals to process")
-            
-            # UPDATED: Show contract details for all entries instead of just the first one
-            if daily_contracts:
-                print("\n   Contract details for each entry:")
-                for i, contract in enumerate(daily_contracts):
-                    print(f"   [{i+1}] {contract['option_type'].upper()} option: {contract['ticker']}")
-                    print(f"       Strike: {contract['strike_price']}, Entry price: ${contract['entry_option_price']:.2f}")
-                    print(f"       Entry time: {contract['entry_time'].strftime('%H:%M:%S')}")
-            
-            # Log the daily breakdown of stretch signals
-            above_count = len(stretch_signals[stretch_signals['stretch_label'] == 'above'])
-            below_count = len(stretch_signals[stretch_signals['stretch_label'] == 'below'])
-            total_count = len(stretch_signals)
-            print(f"🔍 Detected {total_count} stretch signals on {date} (Above: {above_count}, Below: {below_count}).")
-
-        # Add daily contracts to the master list
-        if daily_contracts:
-            # For each contract in the daily list, clean up memory and add to master list
-            for contract in daily_contracts:
-                # Add to our master list of all contracts
-                all_contracts.append(contract)
-
-    except Exception as e:
-        error_msg = f"{date} — Error: {str(e)}"
-        print(f"❌ {error_msg}")
-        track_issue("errors", "other", error_msg, level="error", date=date)
-        issue_tracker["days"]["skipped_errors"] += 1
-        continue
+# Extract results
+total_entry_intent_signals = backtest_results['total_entry_intent_signals']
+days_processed = backtest_results['total_days_processed']
+all_contracts = backtest_results['all_contracts']
 
 # Calculate and log the average number of daily entry intent signals
 if days_processed > 0:
