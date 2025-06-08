@@ -1081,6 +1081,193 @@ def check_late_entry_cutoff(entry_time, params):
     
     return False, None
 
+# === STEP 7g: Load Option Price Data ===
+def load_option_data(option_ticker, date, cache_dir, df_rth_filled, api_key, params, signal_idx=None):
+    """
+    Load and process option price data for a given option ticker and date.
+    
+    Parameters:
+    - option_ticker: The option ticker symbol to load data for
+    - date: Date string in format 'YYYY-MM-DD'
+    - cache_dir: Base cache directory path
+    - df_rth_filled: DataFrame with SPY price data for timestamp alignment
+    - api_key: Polygon API key
+    - params: Strategy parameters
+    - signal_idx: Optional signal index for debug output
+    
+    Returns:
+    - df_option_aligned: DataFrame with aligned option price data
+    - option_entry_price: The entry price for the option (or None if no valid price found)
+    - status: Dictionary with status information including:
+        - success: Boolean indicating if loading was successful
+        - error_message: Error message if loading failed
+        - mismatch_count: Number of timestamp mismatches
+    """
+    # Initialize return status
+    status = {
+        'success': False,
+        'error_message': None,
+        'mismatch_count': 0
+    }
+    
+    # Setup cache path
+    option_dir = os.path.join(cache_dir, "option")
+    option_path = os.path.join(option_dir, f"{date}_{option_ticker.replace(':', '')}.pkl")
+    
+    # Initialize return values
+    df_option_aligned = None
+    option_entry_price = None
+
+    # === Load or pull option price data ===
+    try:
+        if os.path.exists(option_path):
+            df_option_rth = pd.read_pickle(option_path)
+            if params['debug_mode']:
+                print(f"📂 Option price data for {option_ticker} loaded from cache.")
+                # Generate and log hash for option price data
+                generate_dataframe_hash(df_option_rth, f"Option {option_ticker} {date}")
+            if len(df_option_rth) < params['min_option_price_rows']:
+                short_data_msg = f"Option price data for {option_ticker} on {date} is unusually short with only {len(df_option_rth)} rows. This may indicate incomplete data."
+                print(f"⚠️ {short_data_msg}")
+                track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
+        else:
+            option_url = (
+                f"https://api.polygon.io/v2/aggs/ticker/{option_ticker}/range/1/second/"
+                f"{date}/{date}?adjusted=true&sort=asc&limit=50000&apiKey={api_key}"
+            )
+            resp = requests.get(option_url)
+            option_results = resp.json().get("results", [])
+            df_option = pd.DataFrame(option_results)
+
+            if df_option.empty:
+                missing_data_msg = f"No option price data for {option_ticker} on {date} — skipping this entry."
+                print(f"⚠️ {missing_data_msg}")
+                track_issue("errors", "missing_option_price_data", missing_data_msg, level="error", date=date)
+                issue_tracker["opportunities"]["failed_entries_data_issues"] += 1
+                status['error_message'] = missing_data_msg
+                return df_option_aligned, option_entry_price, status
+
+            df_option["timestamp"] = pd.to_datetime(df_option["t"], unit="ms", utc=True).dt.tz_convert("US/Eastern")
+            df_option.rename(columns={
+                "o": "open", "h": "high", "l": "low", "c": "close",
+                "v": "volume", "vw": "vwap", "n": "trades"
+            }, inplace=True)
+            df_option = df_option[["timestamp", "open", "high", "low", "close", "volume", "vwap", "trades"]]
+
+            df_option_rth = df_option[
+                (df_option["timestamp"].dt.time >= time(9, 30)) &
+                (df_option["timestamp"].dt.time <= time(16, 0))
+            ].sort_values("timestamp").reset_index(drop=True)
+            
+            # Mark rows with actual data (before forward filling)
+            df_option_rth['is_actual_data'] = True
+
+            if len(df_option_rth) < params['min_option_price_rows']:
+                short_data_msg = f"Option price data for {option_ticker} on {date} is unusually short with only {len(df_option_rth)} rows after pulling from API. This may indicate incomplete data."
+                print(f"⚠️ {short_data_msg}")
+                track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
+
+            df_option_rth.to_pickle(option_path)
+            if params['debug_mode']:
+                print(f"💾 Option price data for {option_ticker} pulled and cached.")
+                # Generate and log hash for option price data
+                generate_dataframe_hash(df_option_rth, f"Option {option_ticker} {date}")
+        
+        # === Timestamp alignment check ===
+        # Add is_actual_data column if loading from cache and column doesn't exist
+        if 'is_actual_data' not in df_option_rth.columns:
+            df_option_rth['is_actual_data'] = True
+        
+        # Create a copy of the actual data flags before alignment
+        actual_data_timestamps = df_option_rth[df_option_rth['is_actual_data']]['timestamp'].copy()
+        
+        # Align and forward fill the option data using the recommended pattern
+        df_option_aligned = df_option_rth.set_index("timestamp").reindex(df_rth_filled["ts_raw"])
+        df_option_aligned = df_option_aligned.ffill()
+        df_option_aligned = df_option_aligned.infer_objects(copy=False)
+        df_option_aligned = df_option_aligned.reset_index()
+        df_option_aligned.rename(columns={"index": "ts_raw"}, inplace=True)
+        
+        # Initialize staleness tracking
+        df_option_aligned['is_actual_data'] = df_option_aligned['ts_raw'].isin(actual_data_timestamps)
+        # Initialize as float64 type to properly handle inf values
+        df_option_aligned['seconds_since_update'] = pd.Series(0.0, index=df_option_aligned.index, dtype='float64')
+        
+        # Calculate staleness (seconds since last actual data point)
+        last_actual_ts = None
+        for idx_opt, row_opt in df_option_aligned.iterrows():
+            if row_opt['is_actual_data']:
+                last_actual_ts = row_opt['ts_raw']
+                # No need to set 0.0 since already initialized
+            elif last_actual_ts is not None:
+                seconds_diff = (row_opt['ts_raw'] - last_actual_ts).total_seconds()
+                df_option_aligned.at[idx_opt, 'seconds_since_update'] = seconds_diff
+            else:
+                # Edge case: No actual data points before this timestamp
+                df_option_aligned.at[idx_opt, 'seconds_since_update'] = float('inf')  # Mark as infinitely stale
+        
+        # Define a threshold for allowable mismatches
+        mismatch_threshold = params['timestamp_mismatch_threshold']
+        
+        # Check for timestamp mismatches
+        mismatch_count = (~df_option_aligned["ts_raw"].eq(df_rth_filled["ts_raw"])).sum()
+        status['mismatch_count'] = mismatch_count
+        
+        # Track timestamp mismatches
+        if mismatch_count > 0:
+            if mismatch_count > mismatch_threshold:
+                mismatch_msg = f"Timestamp mismatch in {mismatch_count} rows exceeds threshold of {mismatch_threshold}"
+                track_issue("data_integrity", "timestamp_mismatches", mismatch_msg, date=date)
+            else:
+                mismatch_msg = f"Timestamp mismatch in {mismatch_count} rows (below threshold of {mismatch_threshold})"
+                track_issue("warnings", "timestamp_mismatches_below_threshold", mismatch_msg, date=date)
+        
+        # Hash-based timestamp verification as additional sanity check
+        def hash_timestamps(df):
+            return hashlib.md5("".join(df["ts_raw"].astype(str)).encode()).hexdigest()
+
+        spy_hash = hash_timestamps(df_rth_filled)
+        opt_hash = hash_timestamps(df_option_aligned)
+        hash_match = spy_hash == opt_hash
+        
+        # Track hash mismatches - this happens regardless of debug mode
+        if not hash_match:
+            hash_mismatch_msg = f"Hash mismatch between SPY and option data"
+            track_issue("data_integrity", "hash_mismatches", hash_mismatch_msg, date=date)
+        
+        # Only print the debug information if debug mode is on
+        if params['debug_mode']:
+            if signal_idx is not None:
+                print(f"🧪 Signal #{signal_idx+1}: Timestamp mismatches for {option_ticker}: {mismatch_count}")
+            else:
+                print(f"🧪 Timestamp mismatches for {option_ticker}: {mismatch_count}")
+            print(f"⏱️ SPY rows: {len(df_rth_filled)}")
+            print(f"⏱️ OPT rows: {len(df_option_aligned)}")
+            print(f"🔐 SPY hash:  {spy_hash}")
+            print(f"🔐 OPT hash:  {opt_hash}")
+            print(f"🔍 Hash match: {hash_match}")
+            
+            # Generate and log hash for the aligned option data for consistency checks
+            generate_dataframe_hash(df_option_aligned, f"Aligned Option {option_ticker} {date}")
+        
+        # Check if mismatches exceed the threshold
+        if mismatch_count > mismatch_threshold:
+            status['error_message'] = f"Timestamp mismatch in {mismatch_count} rows exceeds threshold of {mismatch_threshold} — skipping this entry."
+            print(f"⚠️ {status['error_message']}")
+            issue_tracker["opportunities"]["failed_entries_data_issues"] += 1
+            return df_option_aligned, option_entry_price, status
+        
+        # Success! Option data loaded and aligned successfully
+        status['success'] = True
+        return df_option_aligned, option_entry_price, status
+        
+    except Exception as e:
+        error_msg = f"Error loading option data for {option_ticker} on {date}: {str(e)}"
+        print(f"❌ {error_msg}")
+        status['error_message'] = error_msg
+        track_issue("errors", "other", error_msg, level="error", date=date)
+        return df_option_aligned, option_entry_price, status
+
 def process_exits_for_contract(contract, params):
     """
     Process exit conditions for a single contract.
@@ -1456,137 +1643,19 @@ for date_obj in business_days:
                     option_ticker = selected_contract['ticker']
                     
                     # === STEP 5d: Load or pull option price data ===
-                    option_path = os.path.join(OPTION_DIR, f"{date}_{option_ticker.replace(':', '')}.pkl")
-                    if os.path.exists(option_path):
-                        df_option_rth = pd.read_pickle(option_path)
-                        if DEBUG_MODE:
-                            print(f"📂 Option price data for {option_ticker} loaded from cache.")
-                            # Generate and log hash for option price data
-                            generate_dataframe_hash(df_option_rth, f"Option {option_ticker} {date}")
-                        if len(df_option_rth) < PARAMS['min_option_price_rows']:
-                            short_data_msg = f"Option price data for {option_ticker} on {date} is unusually short with only {len(df_option_rth)} rows. This may indicate incomplete data."
-                            print(f"⚠️ {short_data_msg}")
-                            track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
-                    else:
-                        option_url = (
-                            f"https://api.polygon.io/v2/aggs/ticker/{option_ticker}/range/1/second/"
-                            f"{date}/{date}?adjusted=true&sort=asc&limit=50000&apiKey={API_KEY}"
-                        )
-                        resp = requests.get(option_url)
-                        option_results = resp.json().get("results", [])
-                        df_option = pd.DataFrame(option_results)
-
-                        if df_option.empty:
-                            missing_data_msg = f"No option price data for {option_ticker} on {date} — skipping this entry."
-                            print(f"⚠️ {missing_data_msg}")
-                            track_issue("errors", "missing_option_price_data", missing_data_msg, level="error", date=date)
-                            issue_tracker["opportunities"]["failed_entries_data_issues"] += 1
-                            continue
-
-                        df_option["timestamp"] = pd.to_datetime(df_option["t"], unit="ms", utc=True).dt.tz_convert("US/Eastern")
-                        df_option.rename(columns={
-                            "o": "open", "h": "high", "l": "low", "c": "close",
-                            "v": "volume", "vw": "vwap", "n": "trades"
-                        }, inplace=True)
-                        df_option = df_option[["timestamp", "open", "high", "low", "close", "volume", "vwap", "trades"]]
-
-                        df_option_rth = df_option[
-                            (df_option["timestamp"].dt.time >= time(9, 30)) &
-                            (df_option["timestamp"].dt.time <= time(16, 0))
-                        ].sort_values("timestamp").reset_index(drop=True)
-                        
-                        # Mark rows with actual data (before forward filling)
-                        df_option_rth['is_actual_data'] = True
-
-                        if len(df_option_rth) < PARAMS['min_option_price_rows']:
-                            short_data_msg = f"Option price data for {option_ticker} on {date} is unusually short with only {len(df_option_rth)} rows after pulling from API. This may indicate incomplete data."
-                            print(f"⚠️ {short_data_msg}")
-                            track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
-
-                        df_option_rth.to_pickle(option_path)
-                        if DEBUG_MODE:
-                            print(f"💾 Option price data for {option_ticker} pulled and cached.")
-                            # Generate and log hash for option price data
-                            generate_dataframe_hash(df_option_rth, f"Option {option_ticker} {date}")
+                    df_option_aligned, option_entry_price, option_load_status = load_option_data(
+                        option_ticker=option_ticker,
+                        date=date,
+                        cache_dir=CACHE_DIR,
+                        df_rth_filled=df_rth_filled,
+                        api_key=API_KEY,
+                        params=PARAMS,
+                        signal_idx=idx
+                    )
                     
-                    # === STEP 5e: Timestamp alignment check ===
-                    # Add is_actual_data column if loading from cache and column doesn't exist
-                    if 'is_actual_data' not in df_option_rth.columns:
-                        df_option_rth['is_actual_data'] = True
-                    
-                    # Create a copy of the actual data flags before alignment
-                    actual_data_timestamps = df_option_rth[df_option_rth['is_actual_data']]['timestamp'].copy()
-                    
-                    # Align and forward fill the option data using the recommended pattern
-                    df_option_aligned = df_option_rth.set_index("timestamp").reindex(df_rth_filled["ts_raw"])
-                    df_option_aligned = df_option_aligned.ffill()
-                    df_option_aligned = df_option_aligned.infer_objects(copy=False)
-                    df_option_aligned = df_option_aligned.reset_index()
-                    df_option_aligned.rename(columns={"index": "ts_raw"}, inplace=True)
-                    
-                    # Initialize staleness tracking
-                    df_option_aligned['is_actual_data'] = df_option_aligned['ts_raw'].isin(actual_data_timestamps)
-                    # Initialize as float64 type to properly handle inf values
-                    df_option_aligned['seconds_since_update'] = pd.Series(0.0, index=df_option_aligned.index, dtype='float64')
-                    
-                    # Calculate staleness (seconds since last actual data point)
-                    last_actual_ts = None
-                    for idx_opt, row_opt in df_option_aligned.iterrows():
-                        if row_opt['is_actual_data']:
-                            last_actual_ts = row_opt['ts_raw']
-                            # No need to set 0.0 since already initialized
-                        elif last_actual_ts is not None:
-                            seconds_diff = (row_opt['ts_raw'] - last_actual_ts).total_seconds()
-                            df_option_aligned.at[idx_opt, 'seconds_since_update'] = seconds_diff
-                        else:
-                            # Edge case: No actual data points before this timestamp
-                            df_option_aligned.at[idx_opt, 'seconds_since_update'] = float('inf')  # Mark as infinitely stale
-                    
-                    # Define a threshold for allowable mismatches
-                    mismatch_threshold = PARAMS['timestamp_mismatch_threshold']
-                    
-                    # Check for timestamp mismatches
-                    mismatch_count = (~df_option_aligned["ts_raw"].eq(df_rth_filled["ts_raw"])).sum()
-                    if DEBUG_MODE:
-                        print(f"🧪 Signal #{idx+1}: Timestamp mismatches for {option_ticker}: {mismatch_count}")
-                    
-                    # Track timestamp mismatches
-                    if mismatch_count > 0:
-                        if mismatch_count > mismatch_threshold:
-                            mismatch_msg = f"Timestamp mismatch in {mismatch_count} rows exceeds threshold of {mismatch_threshold}"
-                            track_issue("data_integrity", "timestamp_mismatches", mismatch_msg, date=date)
-                        else:
-                            mismatch_msg = f"Timestamp mismatch in {mismatch_count} rows (below threshold of {mismatch_threshold})"
-                            track_issue("warnings", "timestamp_mismatches_below_threshold", mismatch_msg, date=date)
-                    
-                    # Hash-based timestamp verification as additional sanity check
-                    def hash_timestamps(df):
-                        return hashlib.md5("".join(df["ts_raw"].astype(str)).encode()).hexdigest()
-
-                    spy_hash = hash_timestamps(df_rth_filled)
-                    opt_hash = hash_timestamps(df_option_aligned)
-                    hash_match = spy_hash == opt_hash
-                    
-                    # Track hash mismatches - this happens regardless of debug mode
-                    if not hash_match:
-                        hash_mismatch_msg = f"Hash mismatch between SPY and option data"
-                        track_issue("data_integrity", "hash_mismatches", hash_mismatch_msg, date=date)
-                    
-                    # Only print the debug information if debug mode is on
-                    if DEBUG_MODE:
-                        print(f"⏱️ SPY rows: {len(df_rth_filled)}")
-                        print(f"⏱️ OPT rows: {len(df_option_aligned)}")
-                        print(f"🔐 SPY hash:  {spy_hash}")
-                        print(f"🔐 OPT hash:  {opt_hash}")
-                        print(f"🔍 Hash match: {hash_match}")
-                        
-                        # Generate and log hash for the aligned option data for consistency checks
-                        generate_dataframe_hash(df_option_aligned, f"Aligned Option {option_ticker} {date}")
-                    
-                    # Check if mismatches exceed the threshold
-                    if mismatch_count > mismatch_threshold:
-                        print(f"⚠️ Timestamp mismatch in {mismatch_count} rows exceeds threshold of {mismatch_threshold} — skipping this entry.")
-                        issue_tracker["opportunities"]["failed_entries_data_issues"] += 1
+                    # Check if option data loading was successful
+                    if not option_load_status['success']:
+                        # If we had an error loading the option data, skip this entry
                         continue
                     
                     # Capture the original price at original timestamp before applying latency
