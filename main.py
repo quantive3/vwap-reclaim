@@ -1461,6 +1461,8 @@ for date_obj in business_days:
                         df_option_rth = pd.read_pickle(option_path)
                         if DEBUG_MODE:
                             print(f"📂 Option price data for {option_ticker} loaded from cache.")
+                            # Generate and log hash for option price data
+                            generate_dataframe_hash(df_option_rth, f"Option {option_ticker} {date}")
                         if len(df_option_rth) < PARAMS['min_option_price_rows']:
                             short_data_msg = f"Option price data for {option_ticker} on {date} is unusually short with only {len(df_option_rth)} rows. This may indicate incomplete data."
                             print(f"⚠️ {short_data_msg}")
@@ -1504,6 +1506,8 @@ for date_obj in business_days:
                         df_option_rth.to_pickle(option_path)
                         if DEBUG_MODE:
                             print(f"💾 Option price data for {option_ticker} pulled and cached.")
+                            # Generate and log hash for option price data
+                            generate_dataframe_hash(df_option_rth, f"Option {option_ticker} {date}")
                     
                     # === STEP 5e: Timestamp alignment check ===
                     # Add is_actual_data column if loading from cache and column doesn't exist
@@ -1575,6 +1579,9 @@ for date_obj in business_days:
                         print(f"🔐 SPY hash:  {spy_hash}")
                         print(f"🔐 OPT hash:  {opt_hash}")
                         print(f"🔍 Hash match: {hash_match}")
+                        
+                        # Generate and log hash for the aligned option data for consistency checks
+                        generate_dataframe_hash(df_option_aligned, f"Aligned Option {option_ticker} {date}")
                     
                     # Check if mismatches exceed the threshold
                     if mismatch_count > mismatch_threshold:
