@@ -1853,12 +1853,127 @@ def run_backtest(params, api_key, cache_dir, issue_tracker):
             issue_tracker["days"]["skipped_errors"] += 1
             continue
     
+    # Calculate performance metrics within the backtest function
+    if all_contracts:
+        # Create DataFrame for metrics calculation
+        contracts_df = pd.DataFrame(all_contracts)
+        
+        # Apply slippage adjustments (same logic as in main script)
+        SLIPPAGE_PERCENT = params['slippage_percent']
+        contracts_df['entry_option_price_slipped'] = contracts_df['entry_option_price'] * (1 + SLIPPAGE_PERCENT)
+        contracts_df['exit_price_slipped'] = contracts_df['exit_price'] * (1 - SLIPPAGE_PERCENT)
+        
+        # Calculate P&L with slippage
+        contracts_df['pnl_percent_slipped'] = ((contracts_df['exit_price_slipped'] - contracts_df['entry_option_price_slipped']) / 
+                                               contracts_df['entry_option_price_slipped'] * 100)
+        
+        # Calculate per-share and dollar P&L with slippage
+        CONTRACTS_PER_TRADE = params['contracts_per_trade']
+        contracts_df['pnl_per_share_slipped'] = contracts_df['exit_price_slipped'] - contracts_df['entry_option_price_slipped']
+        contracts_df['pnl_dollars_slipped'] = contracts_df['pnl_per_share_slipped'] * contracts_df['shares_per_contract'] * CONTRACTS_PER_TRADE
+        
+        # Calculate transaction costs
+        brokerage_fee = params.get('brokerage_fee_per_contract', 0.65)
+        exchange_fee = params.get('exchange_fee_per_contract', 0.65)
+        fee_per_contract_per_direction = brokerage_fee + exchange_fee
+        contracts_df['transaction_cost_total'] = fee_per_contract_per_direction * 2 * CONTRACTS_PER_TRADE
+        
+        # Calculate P&L with transaction costs
+        contracts_df['pnl_dollars_slipped_with_fees'] = contracts_df['pnl_dollars_slipped'] - contracts_df['transaction_cost_total']
+        
+        # Calculate the 6 performance metrics
+        total_trades = len(contracts_df)
+        
+        # Initialize metrics with default values
+        win_rate = None
+        expectancy = None
+        avg_risk_per_trade = None
+        return_on_risk_percent = None
+        sharpe_ratio = None
+        
+        # Filter for trades with valid fully-adjusted P&L data (slippage + fees)
+        valid_pnl_contracts = contracts_df.dropna(subset=['pnl_dollars_slipped_with_fees'])
+        
+        if not valid_pnl_contracts.empty:
+            # Win Rate
+            winning_trades = valid_pnl_contracts[valid_pnl_contracts['pnl_dollars_slipped_with_fees'] > 0]
+            win_rate = len(winning_trades) / len(valid_pnl_contracts) * 100
+            
+            # Expectancy
+            if not winning_trades.empty:
+                avg_win = winning_trades['pnl_dollars_slipped_with_fees'].mean()
+                losing_trades = valid_pnl_contracts[valid_pnl_contracts['pnl_dollars_slipped_with_fees'] < 0]
+                
+                if not losing_trades.empty:
+                    avg_loss = abs(losing_trades['pnl_dollars_slipped_with_fees'].mean())
+                    loss_rate = 1 - (len(winning_trades) / len(valid_pnl_contracts))
+                    
+                    expectancy = (win_rate/100 * avg_win) - (loss_rate * avg_loss)
+                else:
+                    expectancy = float('inf')
+            
+            # Risk calculation
+            contract_fees = params['brokerage_fee_per_contract'] + params['exchange_fee_per_contract']
+            round_trip_fees = contract_fees * 2 * params['contracts_per_trade']
+            stop_loss_decimal = abs(params['stop_loss_percent']) / 100
+            
+            # Calculate capital at risk and max loss per trade
+            valid_pnl_contracts['capital_at_risk'] = (
+                valid_pnl_contracts['entry_option_price_slipped'] * 
+                valid_pnl_contracts['shares_per_contract'] * 
+                params['contracts_per_trade']
+            )
+            valid_pnl_contracts['max_loss_per_trade'] = (
+                valid_pnl_contracts['capital_at_risk'] * stop_loss_decimal
+            ) + round_trip_fees
+            
+            avg_risk_per_trade = valid_pnl_contracts['max_loss_per_trade'].mean()
+            
+            # Risk-adjusted expectancy
+            if expectancy is not None and avg_risk_per_trade > 0:
+                if expectancy != float('inf'):
+                    risk_adjusted_expectancy = expectancy / avg_risk_per_trade
+                    return_on_risk_percent = risk_adjusted_expectancy * 100
+                else:
+                    return_on_risk_percent = float('inf')
+            
+            # Sharpe Ratio
+            daily_returns = valid_pnl_contracts.groupby(valid_pnl_contracts['entry_time'].dt.date)['pnl_dollars_slipped_with_fees'].sum()
+            
+            if len(daily_returns) > 1:
+                mean_daily_return = daily_returns.mean()
+                std_daily_return = daily_returns.std()
+                
+                if std_daily_return > 0:
+                    sharpe_ratio = mean_daily_return / std_daily_return
+        
+        # Create metrics dictionary
+        metrics = {
+            'total_trades': total_trades,
+            'win_rate': win_rate,
+            'expectancy': expectancy,
+            'avg_risk_per_trade': avg_risk_per_trade,
+            'return_on_risk_percent': return_on_risk_percent,
+            'sharpe_ratio': sharpe_ratio
+        }
+    else:
+        # Create empty metrics dictionary if no contracts
+        metrics = {
+            'total_trades': 0,
+            'win_rate': None,
+            'expectancy': None,
+            'avg_risk_per_trade': None,
+            'return_on_risk_percent': None,
+            'sharpe_ratio': None
+        }
+    
     # Prepare summary metrics
     summary_metrics = {
         'total_days_processed': days_processed,
         'total_entry_intent_signals': total_entry_intent_signals,
         'total_contracts': len(all_contracts),
-        'all_contracts': all_contracts
+        'all_contracts': all_contracts,
+        'metrics': metrics
     }
     
     # Calculate and add average entry intent signals
@@ -1883,6 +1998,21 @@ backtest_results = run_backtest(PARAMS, API_KEY, CACHE_DIR, issue_tracker)
 total_entry_intent_signals = backtest_results['total_entry_intent_signals']
 days_processed = backtest_results['total_days_processed']
 all_contracts = backtest_results['all_contracts']
+metrics = backtest_results['metrics']
+
+# Debug: Show extracted metrics dictionary
+if PARAMS['debug_mode']:
+    print(f"\n🔍 DEBUG - EXTRACTED METRICS DICTIONARY:")
+    for key, value in metrics.items():
+        if value is None:
+            print(f"  {key}: None")
+        elif isinstance(value, float):
+            if value == float('inf'):
+                print(f"  {key}: ∞")
+            else:
+                print(f"  {key}: {value:.4f}")
+        else:
+            print(f"  {key}: {value}")
 
 # Calculate and log the average number of daily entry intent signals
 if days_processed > 0:
@@ -2240,6 +2370,13 @@ if all_contracts:
     total_trades = len(contracts_df)
     print(f"\n💼 TOTAL TRADES: {total_trades}")
     
+    # Initialize metrics with default values
+    win_rate = None
+    expectancy = None
+    avg_risk_per_trade = None
+    return_on_risk_percent = None
+    sharpe_ratio = None
+    
     # Filter for trades with valid fully-adjusted P&L data (slippage + fees)
     valid_pnl_contracts = contracts_df.dropna(subset=['pnl_dollars_slipped_with_fees'])
     
@@ -2295,6 +2432,7 @@ if all_contracts:
                 print(f"\n📊 AVERAGE RETURN ON RISK: {return_on_risk_percent:.2f}%")
             else:
                 print(f"\n📊 AVERAGE RETURN ON RISK: ∞% (no losing trades)")
+                return_on_risk_percent = float('inf')
         
         # Sharpe Ratio (using daily returns, fully adjusted)
         # Group by date to get daily returns
@@ -2310,8 +2448,10 @@ if all_contracts:
                 print(f"\n📈 UNANNUALIZED SHARPE RATIO: {sharpe_ratio:.2f}")
             else:
                 print("\n📈 UNANNUALIZED SHARPE RATIO: N/A (insufficient volatility)")
+                sharpe_ratio = None
         else:
             print("\n📈 SHARPE RATIO: N/A (need data from at least two days)")
+            sharpe_ratio = None
     else:
         print("\n⚠️ No valid P&L data available for performance metrics")
 
