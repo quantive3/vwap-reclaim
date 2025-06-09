@@ -7,10 +7,11 @@ CACHE_DIR = "./polygon_cache"  # Local cache directory
 # === STEP 2: API Key from Secret File ===
 try:
     from secret import API_KEY
-    print("✅ API key loaded from secret.py")
+    API_KEY_LOADED_FROM_SECRET = True
 except ImportError:
     # Fallback to manual input if secret.py is not available
     API_KEY = input("🔑 Enter your Polygon API key (or create a secret.py file): ").strip()
+    API_KEY_LOADED_FROM_SECRET = False
 
 # === STEP 3: Imports and setup ===
 import pandas as pd
@@ -82,6 +83,9 @@ def initialize_parameters():
         
         # Debug settings
         'debug_mode': True,  # Enable/disable debug outputs
+        
+        # Silent mode for grid searches
+        'silent_mode': False,  # Enable/disable all non-debug print outputs
     }
 
 def initialize_issue_tracker(params):
@@ -192,7 +196,8 @@ def load_spy_data(date, cache_dir, api_key, params, debug_mode=False):
             generate_dataframe_hash(df_rth_filled, f"SPY {date}")
         if len(df_rth_filled) < params['min_spy_data_rows']:
             short_data_msg = f"SPY data for {date} is unusually short with only {len(df_rth_filled)} rows. This may indicate incomplete data."
-            print(f"⚠️ {short_data_msg}")
+            if not params.get('silent_mode', False):
+                print(f"⚠️ {short_data_msg}")
             track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
     else:
         base_url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/second/{date}/{date}"
@@ -221,7 +226,8 @@ def load_spy_data(date, cache_dir, api_key, params, debug_mode=False):
 
         if not all_results:
             no_data_msg = f"No {ticker} data for {date} — skipping."
-            print(f"⚠️ {no_data_msg}")
+            if not params.get('silent_mode', False):
+                print(f"⚠️ {no_data_msg}")
             track_issue("warnings", f"no_{ticker}_data", no_data_msg, date=date)
             return None
 
@@ -275,7 +281,8 @@ def load_spy_data(date, cache_dir, api_key, params, debug_mode=False):
 
         if len(df_rth_filled) < params['min_spy_data_rows']:
             short_data_msg = f"SPY data for {date} is unusually short with only {len(df_rth_filled)} rows after pulling from API. This may indicate incomplete data."
-            print(f"⚠️ {short_data_msg}")
+            if not params.get('silent_mode', False):
+                print(f"⚠️ {short_data_msg}")
             track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
 
         df_rth_filled.to_pickle(spy_path)
@@ -312,7 +319,8 @@ def load_chain_data(date, cache_dir, api_key, params, debug_mode=False):
             generate_dataframe_hash(df_chain, f"Chain {date}")
         if len(df_chain) < params['min_option_chain_rows']:
             short_data_msg = f"Option chain data for {date} is unusually short with only {len(df_chain)} rows. This may indicate incomplete data."
-            print(f"⚠️ {short_data_msg}")
+            if not params.get('silent_mode', False):
+                print(f"⚠️ {short_data_msg}")
             track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
     else:
         def fetch_chain(contract_type):
@@ -345,7 +353,8 @@ def load_chain_data(date, cache_dir, api_key, params, debug_mode=False):
         # Check for unusually short data before caching
         if len(df_chain) < params['min_option_chain_rows']:
             short_data_msg = f"Option chain data for {date} is unusually short with only {len(df_chain)} rows after pulling from API. This may indicate incomplete data."
-            print(f"⚠️ {short_data_msg}")
+            if not params.get('silent_mode', False):
+                print(f"⚠️ {short_data_msg}")
             track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
 
         df_chain.to_pickle(chain_path)
@@ -356,7 +365,8 @@ def load_chain_data(date, cache_dir, api_key, params, debug_mode=False):
 
     if df_chain.empty:
         no_data_msg = f"No option chain data for {date} — skipping."
-        print(f"⚠️ {no_data_msg}")
+        if not params.get('silent_mode', False):
+            print(f"⚠️ {no_data_msg}")
         track_issue("warnings", "other", no_data_msg, date=date)
         return None
         
@@ -365,6 +375,10 @@ def load_chain_data(date, cache_dir, api_key, params, debug_mode=False):
 # === STEP 6: Define Parameters ===
 # Get parameters from initialization function
 PARAMS = initialize_parameters()
+
+# Print API key loading status now that PARAMS is available
+if API_KEY_LOADED_FROM_SECRET and not PARAMS.get('silent_mode', False):
+    print("✅ API key loaded from secret.py")
 
 # === STEP 6b: Initialize Issue Tracker ===
 issue_tracker = initialize_issue_tracker(PARAMS)
@@ -503,7 +517,8 @@ def detect_stretch_signal(df_rth_filled, params):
         # Check for NaN or invalid timestamps before filtering
         invalid_timestamps = signals['ts_raw'].isna().sum()
         if invalid_timestamps > 0 and DEBUG_MODE:
-            print(f"⚠️ Found {invalid_timestamps} signals with invalid timestamps before time filtering")
+            if not PARAMS.get('silent_mode', False):
+                print(f"⚠️ Found {invalid_timestamps} signals with invalid timestamps before time filtering")
             
         # Apply the time filter - core logic unchanged
         signals = signals[(signals['ts_obj'] >= entry_start) & (signals['ts_obj'] <= entry_end)]
@@ -513,7 +528,8 @@ def detect_stretch_signal(df_rth_filled, params):
     except Exception as e:
         # Capture errors in timestamp conversion or filtering
         error_msg = f"❌ Error during time filtering of signals: {str(e)}"
-        print(error_msg)
+        if not PARAMS.get('silent_mode', False):
+            print(error_msg)
         raise ValueError(error_msg)
     
     # Count signals after time filtering for diagnostic purposes
@@ -709,7 +725,8 @@ def select_option_contract(entry_signal, df_chain, spy_price, params):
     
     if filtered_chain.empty:
         if params['debug_mode']:
-            print(f"⚠️ No same-day expiry {option_type} options available in the chain")
+            if not params.get('silent_mode', False):
+                print(f"⚠️ No same-day expiry {option_type} options available in the chain")
             
         # If no same-day expiry options, check if we allow non-same-day expiry as fallback
         if not params.get('require_same_day_expiry', True):
@@ -717,14 +734,17 @@ def select_option_contract(entry_signal, df_chain, spy_price, params):
             
             if filtered_chain.empty:
                 if params['debug_mode']:
-                    print(f"⚠️ No {option_type} options available in the chain at all")
+                    if not params.get('silent_mode', False):
+                        print(f"⚠️ No {option_type} options available in the chain at all")
                 return None
             else:
                 if params['debug_mode']:
-                    print(f"ℹ️ Using non-same-day expiry options as fallback")
+                    if not params.get('silent_mode', False):
+                        print(f"ℹ️ Using non-same-day expiry options as fallback")
         else:
             if params['debug_mode']:
-                print(f"⚠️ Same-day expiry required but none available - skipping")
+                if not params.get('silent_mode', False):
+                    print(f"⚠️ Same-day expiry required but none available - skipping")
             return None
     
     # Calculate absolute difference between each strike and current price for ATM selection
@@ -816,13 +836,15 @@ def select_option_contract(entry_signal, df_chain, spy_price, params):
         else:
             # No exact ATM match found, return None to skip this contract
             if params['debug_mode']:
-                print(f"⚠️ ATM mode requested but no exact match to {spy_price} found - skipping")
+                if not params.get('silent_mode', False):
+                    print(f"⚠️ ATM mode requested but no exact match to {spy_price} found - skipping")
             return None
     
     else:
         # Invalid selection mode, default to ITM
         if params['debug_mode']:
-            print(f"⚠️ Invalid option_selection_mode: {option_selection_mode}. Defaulting to 'itm'")
+            if not params.get('silent_mode', False):
+                print(f"⚠️ Invalid option_selection_mode: {option_selection_mode}. Defaulting to 'itm'")
         
         # Reuse ITM logic as default case
         if option_type == 'call':
@@ -874,14 +896,16 @@ def select_option_contract(entry_signal, df_chain, spy_price, params):
     if 'shares_per_contract' not in selected_contract:
         missing_shares_msg = f"Missing shares_per_contract for {contract_details['ticker']} - using default of 100"
         if params['debug_mode']:
-            print(f"⚠️ {missing_shares_msg}")
+            if not params.get('silent_mode', False):
+                print(f"⚠️ {missing_shares_msg}")
         track_issue("warnings", "shares_per_contract_missing", missing_shares_msg, date=current_date)
     
     # Warning for non-standard contract size
     if contract_details['shares_per_contract'] != 100:
         non_standard_msg = f"Non-standard contract size detected: {contract_details['shares_per_contract']} shares for {contract_details['ticker']}"
         if params['debug_mode']:
-            print(f"⚠️ {non_standard_msg}")
+            if not params.get('silent_mode', False):
+                print(f"⚠️ {non_standard_msg}")
         track_issue("warnings", "non_standard_contract_size", non_standard_msg, date=current_date)
     
     if params['debug_mode']:
@@ -1000,7 +1024,8 @@ def process_emergency_exit(contract, current_time, df_option, params):
         # This ensures we still exit even if there's a data issue
         exit_row = df_option.iloc[-1]
         exit_time = exit_row['ts_raw']
-        print(f"⚠️ EMERGENCY EXIT: Using last available price for {contract['ticker']} at {exit_time}")
+        if not params.get('silent_mode', False):
+            print(f"⚠️ EMERGENCY EXIT: Using last available price for {contract['ticker']} at {exit_time}")
     else:
         exit_row = current_rows.iloc[0]
         exit_time = current_time
@@ -1012,7 +1037,8 @@ def process_emergency_exit(contract, current_time, df_option, params):
         exit_price = exit_row['close']
         # Log the fallback
         fallback_msg = f"EMERGENCY EXIT: Falling back to close price for {contract['ticker']} at {exit_time}"
-        print(f"⚠️ {fallback_msg}")
+        if not params.get('silent_mode', False):
+            print(f"⚠️ {fallback_msg}")
         entry_date = contract['entry_time'].strftime("%Y-%m-%d")
         track_issue("warnings", "vwap_fallback_to_close", fallback_msg, date=entry_date)
     
@@ -1036,8 +1062,9 @@ def process_emergency_exit(contract, current_time, df_option, params):
     contract['emergency_exit_triggered'] = True
     
     # Log the emergency exit
-    print(f"🚨 EMERGENCY EXIT TRIGGERED for {contract['ticker']} at {exit_time.strftime('%H:%M:%S')}")
-    print(f"   P&L: {pnl_percent:.2f}%, Duration: {trade_duration:.0f}s")
+    if not params.get('silent_mode', False):
+        print(f"🚨 EMERGENCY EXIT TRIGGERED for {contract['ticker']} at {exit_time.strftime('%H:%M:%S')}")
+        print(f"   P&L: {pnl_percent:.2f}%, Duration: {trade_duration:.0f}s")
     
     # Track this issue in warnings
     entry_date = entry_time.strftime("%Y-%m-%d")
@@ -1128,7 +1155,8 @@ def load_option_data(option_ticker, date, cache_dir, df_rth_filled, api_key, par
                 generate_dataframe_hash(df_option_rth, f"Option {option_ticker} {date}")
             if len(df_option_rth) < params['min_option_price_rows']:
                 short_data_msg = f"Option price data for {option_ticker} on {date} is unusually short with only {len(df_option_rth)} rows. This may indicate incomplete data."
-                print(f"⚠️ {short_data_msg}")
+                if not params.get('silent_mode', False):
+                    print(f"⚠️ {short_data_msg}")
                 track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
         else:
             option_url = (
@@ -1141,7 +1169,8 @@ def load_option_data(option_ticker, date, cache_dir, df_rth_filled, api_key, par
 
             if df_option.empty:
                 missing_data_msg = f"No option price data for {option_ticker} on {date} — skipping this entry."
-                print(f"⚠️ {missing_data_msg}")
+                if not params.get('silent_mode', False):
+                    print(f"⚠️ {missing_data_msg}")
                 track_issue("errors", "missing_option_price_data", missing_data_msg, level="error", date=date)
                 issue_tracker["opportunities"]["failed_entries_data_issues"] += 1
                 status['error_message'] = missing_data_msg
@@ -1164,7 +1193,8 @@ def load_option_data(option_ticker, date, cache_dir, df_rth_filled, api_key, par
 
             if len(df_option_rth) < params['min_option_price_rows']:
                 short_data_msg = f"Option price data for {option_ticker} on {date} is unusually short with only {len(df_option_rth)} rows after pulling from API. This may indicate incomplete data."
-                print(f"⚠️ {short_data_msg}")
+                if not params.get('silent_mode', False):
+                    print(f"⚠️ {short_data_msg}")
                 track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
 
             df_option_rth.to_pickle(option_path)
@@ -1253,7 +1283,8 @@ def load_option_data(option_ticker, date, cache_dir, df_rth_filled, api_key, par
         # Check if mismatches exceed the threshold
         if mismatch_count > mismatch_threshold:
             status['error_message'] = f"Timestamp mismatch in {mismatch_count} rows exceeds threshold of {mismatch_threshold} — skipping this entry."
-            print(f"⚠️ {status['error_message']}")
+            if not params.get('silent_mode', False):
+                print(f"⚠️ {status['error_message']}")
             issue_tracker["opportunities"]["failed_entries_data_issues"] += 1
             return df_option_aligned, option_entry_price, status
         
@@ -1263,7 +1294,8 @@ def load_option_data(option_ticker, date, cache_dir, df_rth_filled, api_key, par
         
     except Exception as e:
         error_msg = f"Error loading option data for {option_ticker} on {date}: {str(e)}"
-        print(f"❌ {error_msg}")
+        if not params.get('silent_mode', False):
+            print(f"❌ {error_msg}")
         status['error_message'] = error_msg
         track_issue("errors", "other", error_msg, level="error", date=date)
         return df_option_aligned, option_entry_price, status
@@ -1281,7 +1313,8 @@ def process_exits_for_contract(contract, params):
     """
     if 'df_option_aligned' not in contract:
         # Always show critical warning and track the issue
-        print(f"⚠️ No option data available for exit processing for {contract['ticker']}")
+        if not params.get('silent_mode', False):
+            print(f"⚠️ No option data available for exit processing for {contract['ticker']}")
         
         # Get entry date for tracking if available
         entry_date = contract['entry_time'].strftime("%Y-%m-%d") if 'entry_time' in contract else None
@@ -1314,7 +1347,8 @@ def process_exits_for_contract(contract, params):
     
     if future_prices.empty:
         # Always show critical warning and track the issue
-        print(f"⚠️ No future price data available after entry at {entry_time} for {contract['ticker']}")
+        if not params.get('silent_mode', False):
+            print(f"⚠️ No future price data available after entry at {entry_time} for {contract['ticker']}")
         
         # Get entry date for tracking
         entry_date = entry_time.strftime("%Y-%m-%d")
@@ -1342,7 +1376,8 @@ def process_exits_for_contract(contract, params):
             # Log the fallback to close price
             fallback_msg = f"Falling back to close price for exit check at {current_time} - VWAP not available"
             if params['debug_mode']:
-                print(f"⚠️ {fallback_msg}")
+                if not params.get('silent_mode', False):
+                    print(f"⚠️ {fallback_msg}")
             entry_date = contract['entry_time'].strftime("%Y-%m-%d")
             track_issue("warnings", "vwap_fallback_to_close", fallback_msg, date=entry_date)
         
@@ -1602,7 +1637,8 @@ def run_backtest(params, api_key, cache_dir, issue_tracker):
             # Log if no stretch signals are detected
             if stretch_signals.empty:
                 no_signals_msg = f"No stretch signals detected for {date} — skipping."
-                print(f"⚠️ {no_signals_msg}")
+                if not params.get('silent_mode', False):
+                    print(f"⚠️ {no_signals_msg}")
                 # This is normal behavior, not a warning
                 continue
 
@@ -1611,7 +1647,8 @@ def run_backtest(params, api_key, cache_dir, issue_tracker):
             # Ensure 'entry_intent' column exists
             if 'entry_intent' not in stretch_signals.columns:
                 error_msg = f"'entry_intent' column missing for {date} — skipping."
-                print(f"⚠️ {error_msg}")
+                if not params.get('silent_mode', False):
+                    print(f"⚠️ {error_msg}")
                 track_issue("errors", "other", error_msg, level="error", date=date)
                 issue_tracker["days"]["skipped_errors"] += 1
                 continue
@@ -1640,7 +1677,8 @@ def run_backtest(params, api_key, cache_dir, issue_tracker):
                     # FAILSAFE: Check for late entry cutoff first (blocks entries that are too late in the day)
                     is_blocked, block_message = check_late_entry_cutoff(entry_time, params)
                     if is_blocked:
-                        print(f"⛔ {block_message}")
+                        if not params.get('silent_mode', False):
+                            print(f"⛔ {block_message}")
                         
                         # Track this in risk management stats
                         current_date = entry_time.strftime("%Y-%m-%d")
@@ -1848,7 +1886,8 @@ def run_backtest(params, api_key, cache_dir, issue_tracker):
 
         except Exception as e:
             error_msg = f"{date} — Error: {str(e)}"
-            print(f"❌ {error_msg}")
+            if not params.get('silent_mode', False):
+                print(f"❌ {error_msg}")
             track_issue("errors", "other", error_msg, level="error", date=date)
             issue_tracker["days"]["skipped_errors"] += 1
             continue
@@ -2017,20 +2056,24 @@ if PARAMS['debug_mode']:
 # Calculate and log the average number of daily entry intent signals
 if days_processed > 0:
     average_entry_intent_signals = total_entry_intent_signals / days_processed
-    print(f"📊 Average daily entry intent signals over the period: {average_entry_intent_signals:.2f}")
+    if not PARAMS.get('silent_mode', False):
+        print(f"📊 Average daily entry intent signals over the period: {average_entry_intent_signals:.2f}")
     
     # Calculate average successful entries per day
     if all_contracts:
         average_entries_per_day = len(all_contracts) / days_processed
         success_rate = len(all_contracts) / total_entry_intent_signals * 100 if total_entry_intent_signals > 0 else 0
-        print(f"📊 Average successful trades per day: {average_entries_per_day:.2f}")
-        print(f"📊 Overall success rate: {success_rate:.1f}% ({len(all_contracts)}/{total_entry_intent_signals} signals)")
+        if not PARAMS.get('silent_mode', False):
+            print(f"📊 Average successful trades per day: {average_entries_per_day:.2f}")
+            print(f"📊 Overall success rate: {success_rate:.1f}% ({len(all_contracts)}/{total_entry_intent_signals} signals)")
 else:
-    print("⚠️ No days processed, cannot calculate average entry intent signals.")
+    if not PARAMS.get('silent_mode', False):
+        print("⚠️ No days processed, cannot calculate average entry intent signals.")
 
 # Summary of contract selections
 if all_contracts:
-    print(f"\n📈 Total option contracts selected: {len(all_contracts)}")
+    if not PARAMS.get('silent_mode', False):
+        print(f"\n📈 Total option contracts selected: {len(all_contracts)}")
     
     # Create a DataFrame for easier analysis
     contracts_df = pd.DataFrame(all_contracts)
@@ -2063,36 +2106,38 @@ if all_contracts:
     call_count = len(contracts_df[contracts_df['option_type'] == 'call'])
     put_count = len(contracts_df[contracts_df['option_type'] == 'put'])
     
-    print(f"  Call options: {call_count} ({call_count/len(contracts_df)*100:.1f}%)")
-    print(f"  Put options: {put_count} ({put_count/len(contracts_df)*100:.1f}%)")
+    if not PARAMS.get('silent_mode', False):
+        print(f"  Call options: {call_count} ({call_count/len(contracts_df)*100:.1f}%)")
+        print(f"  Put options: {put_count} ({put_count/len(contracts_df)*100:.1f}%)")
     
     # Count by positioning
     atm_count = len(contracts_df[contracts_df['is_atm'] == True])
     itm_count = len(contracts_df[contracts_df['is_itm'] == True])
     otm_count = len(contracts_df[(contracts_df['is_atm'] == False) & (contracts_df['is_itm'] == False)])
     
-    print(f"  ATM contracts: {atm_count} ({atm_count/len(contracts_df)*100:.1f}%)")
-    print(f"  ITM contracts: {itm_count} ({itm_count/len(contracts_df)*100:.1f}%)")
-    print(f"  OTM contracts: {otm_count} ({otm_count/len(contracts_df)*100:.1f}%)")
-    
-    # Display contracts per trade info
-    print(f"  Contracts per trade: {CONTRACTS_PER_TRADE}")
-    
-    # Get trading day distribution
-    print("\n📆 Trades by Day:")
-    date_counts = contracts_df['entry_time'].dt.date.value_counts().sort_index()
-    for date, count in date_counts.items():
-        print(f"  {date}: {count} trade(s)")
-    
-    # Average strike distance from price
-    avg_diff = contracts_df['abs_diff'].mean()
-    print(f"\n  Average distance from ATM: {avg_diff:.4f}")
-    
-    # Show contract multiplier stats
-    print("\n📊 Contract Multiplier Statistics:")
-    shares_counts = contracts_df['shares_per_contract'].value_counts()
-    for shares, count in shares_counts.items():
-        print(f"  {shares} shares per contract: {count} trade(s) ({count/len(contracts_df)*100:.1f}%)")
+    if not PARAMS.get('silent_mode', False):
+        print(f"  ATM contracts: {atm_count} ({atm_count/len(contracts_df)*100:.1f}%)")
+        print(f"  ITM contracts: {itm_count} ({itm_count/len(contracts_df)*100:.1f}%)")
+        print(f"  OTM contracts: {otm_count} ({otm_count/len(contracts_df)*100:.1f}%)")
+        
+        # Display contracts per trade info
+        print(f"  Contracts per trade: {CONTRACTS_PER_TRADE}")
+        
+        # Get trading day distribution
+        print("\n📆 Trades by Day:")
+        date_counts = contracts_df['entry_time'].dt.date.value_counts().sort_index()
+        for date, count in date_counts.items():
+            print(f"  {date}: {count} trade(s)")
+        
+        # Average strike distance from price
+        avg_diff = contracts_df['abs_diff'].mean()
+        print(f"\n  Average distance from ATM: {avg_diff:.4f}")
+        
+        # Show contract multiplier stats
+        print("\n📊 Contract Multiplier Statistics:")
+        shares_counts = contracts_df['shares_per_contract'].value_counts()
+        for shares, count in shares_counts.items():
+            print(f"  {shares} shares per contract: {count} trade(s) ({count/len(contracts_df)*100:.1f}%)")
     
     # Add price staleness statistics if enabled
     if PARAMS['report_stale_prices'] and 'is_price_stale' in contracts_df.columns:
@@ -2101,11 +2146,12 @@ if all_contracts:
         avg_staleness = contracts_df['price_staleness_seconds'].mean()
         max_staleness = contracts_df['price_staleness_seconds'].max()
         
-        print("\n🔍 Entry Price Staleness Statistics:")
-        print(f"  Fresh price entries: {fresh_count} ({(fresh_count/len(contracts_df))*100:.1f}%)")
-        print(f"  Stale price entries: {stale_count} ({(stale_count/len(contracts_df))*100:.1f}%)")
-        print(f"  Average staleness: {avg_staleness:.2f} seconds")
-        print(f"  Maximum staleness: {max_staleness:.2f} seconds")
+        if not PARAMS.get('silent_mode', False):
+            print("\n🔍 Entry Price Staleness Statistics:")
+            print(f"  Fresh price entries: {fresh_count} ({(fresh_count/len(contracts_df))*100:.1f}%)")
+            print(f"  Stale price entries: {stale_count} ({(stale_count/len(contracts_df))*100:.1f}%)")
+            print(f"  Average staleness: {avg_staleness:.2f} seconds")
+            print(f"  Maximum staleness: {max_staleness:.2f} seconds")
         
         # Add exit price staleness statistics if those fields exist
         if 'is_exit_price_stale' in contracts_df.columns and 'exit_price_staleness_seconds' in contracts_df.columns:
@@ -2118,26 +2164,28 @@ if all_contracts:
                 exit_avg_staleness = valid_exit_data['exit_price_staleness_seconds'].mean()
                 exit_max_staleness = valid_exit_data['exit_price_staleness_seconds'].max()
                 
-                print("\n🔍 Exit Price Staleness Statistics:")
-                print(f"  Fresh price exits: {exit_fresh_count} ({(exit_fresh_count/len(valid_exit_data))*100:.1f}%)")
-                print(f"  Stale price exits: {exit_stale_count} ({(exit_stale_count/len(valid_exit_data))*100:.1f}%)")
-                print(f"  Average exit staleness: {exit_avg_staleness:.2f} seconds")
-                print(f"  Maximum exit staleness: {exit_max_staleness:.2f} seconds")
-                
-                # Compare entry vs exit staleness
-                if stale_count > 0 or exit_stale_count > 0:
-                    print("\n🔍 Entry vs Exit Staleness Comparison:")
-                    print(f"  Stale entries: {stale_count}/{len(contracts_df)} ({(stale_count/len(contracts_df))*100:.1f}%)")
-                    print(f"  Stale exits: {exit_stale_count}/{len(valid_exit_data)} ({(exit_stale_count/len(valid_exit_data))*100:.1f}%)")
-                    print(f"  Average entry staleness: {avg_staleness:.2f} seconds")
+                if not PARAMS.get('silent_mode', False):
+                    print("\n🔍 Exit Price Staleness Statistics:")
+                    print(f"  Fresh price exits: {exit_fresh_count} ({(exit_fresh_count/len(valid_exit_data))*100:.1f}%)")
+                    print(f"  Stale price exits: {exit_stale_count} ({(exit_stale_count/len(valid_exit_data))*100:.1f}%)")
                     print(f"  Average exit staleness: {exit_avg_staleness:.2f} seconds")
+                    print(f"  Maximum exit staleness: {exit_max_staleness:.2f} seconds")
+                    
+                    # Compare entry vs exit staleness
+                    if stale_count > 0 or exit_stale_count > 0:
+                        print("\n🔍 Entry vs Exit Staleness Comparison:")
+                        print(f"  Stale entries: {stale_count}/{len(contracts_df)} ({(stale_count/len(contracts_df))*100:.1f}%)")
+                        print(f"  Stale exits: {exit_stale_count}/{len(valid_exit_data)} ({(exit_stale_count/len(valid_exit_data))*100:.1f}%)")
+                        print(f"  Average entry staleness: {avg_staleness:.2f} seconds")
+                        print(f"  Average exit staleness: {exit_avg_staleness:.2f} seconds")
     
     # Add exit reason distribution
     if 'exit_reason' in contracts_df.columns:
-        print("\n🚪 Exit Reason Distribution:")
-        exit_counts = contracts_df['exit_reason'].value_counts()
-        for reason, count in exit_counts.items():
-            print(f"  {reason}: {count} ({count/len(contracts_df)*100:.1f}%)")
+        if not PARAMS.get('silent_mode', False):
+            print("\n🚪 Exit Reason Distribution:")
+            exit_counts = contracts_df['exit_reason'].value_counts()
+            for reason, count in exit_counts.items():
+                print(f"  {reason}: {count} ({count/len(contracts_df)*100:.1f}%)")
     
     # Add P&L statistics
     if 'pnl_percent' in contracts_df.columns:
@@ -2150,9 +2198,10 @@ if all_contracts:
         missing_pnl_percent = (trades_missing_pnl / total_trades) * 100 if total_trades > 0 else 0
         
         # Report the missing P&L percentage
-        print(f"\n📊 P&L Data Completeness:")
-        print(f"  Trades with P&L data: {trades_with_pnl}/{total_trades} ({100-missing_pnl_percent:.1f}%)")
-        print(f"  Trades missing P&L data: {trades_missing_pnl}/{total_trades} ({missing_pnl_percent:.1f}%)")
+        if not PARAMS.get('silent_mode', False):
+            print(f"\n📊 P&L Data Completeness:")
+            print(f"  Trades with P&L data: {trades_with_pnl}/{total_trades} ({100-missing_pnl_percent:.1f}%)")
+            print(f"  Trades missing P&L data: {trades_missing_pnl}/{total_trades} ({missing_pnl_percent:.1f}%)")
         
         # Filter out None/NaN values
         pnl_data = contracts_df['pnl_percent'].dropna()
@@ -2208,40 +2257,43 @@ if all_contracts:
                 # since they're not used anywhere else in the code
             
             # Average P&L by exit reason
-            print("\n  P&L by Exit Reason:")
-            exit_pnl = contracts_df.groupby('exit_reason')['pnl_percent'].agg(['mean', 'count'])
-            
-            # Also calculate slippage-adjusted P&L by exit reason
-            exit_pnl_slipped = contracts_df.groupby('exit_reason')['pnl_percent_slipped'].agg(['mean', 'count'])
-            
-            for reason, stats in exit_pnl.iterrows():
-                slipped_mean = exit_pnl_slipped.loc[reason, 'mean'] if reason in exit_pnl_slipped.index else float('nan')
-                print(f"    {reason}: {stats['mean']:.2f}% avg | With slippage: {slipped_mean:.2f}% ({stats['count']} trades)")
+            if not PARAMS.get('silent_mode', False):
+                print("\n  P&L by Exit Reason:")
+                exit_pnl = contracts_df.groupby('exit_reason')['pnl_percent'].agg(['mean', 'count'])
+                
+                # Also calculate slippage-adjusted P&L by exit reason
+                exit_pnl_slipped = contracts_df.groupby('exit_reason')['pnl_percent_slipped'].agg(['mean', 'count'])
+                
+                for reason, stats in exit_pnl.iterrows():
+                    slipped_mean = exit_pnl_slipped.loc[reason, 'mean'] if reason in exit_pnl_slipped.index else float('nan')
+                    print(f"    {reason}: {stats['mean']:.2f}% avg | With slippage: {slipped_mean:.2f}% ({stats['count']} trades)")
     
                 # Add trade duration statistics
     if 'trade_duration_seconds' in contracts_df.columns:
         duration_data = contracts_df['trade_duration_seconds'].dropna()
         
         if not duration_data.empty:
-            print("\n⏱️ Trade Duration Statistics:")
-            print(f"  Average duration: {duration_data.mean():.1f} seconds")
-            print(f"  Median duration: {duration_data.median():.1f} seconds")
-            print(f"  Min duration: {duration_data.min():.1f} seconds")
-            print(f"  Max duration: {duration_data.max():.1f} seconds")
+            if not PARAMS.get('silent_mode', False):
+                print("\n⏱️ Trade Duration Statistics:")
+                print(f"  Average duration: {duration_data.mean():.1f} seconds")
+                print(f"  Median duration: {duration_data.median():.1f} seconds")
+                print(f"  Min duration: {duration_data.min():.1f} seconds")
+                print(f"  Max duration: {duration_data.max():.1f} seconds")
     
     # Add latency statistics if latency was applied
     if 'latency_applied' in contracts_df.columns and contracts_df['latency_applied'].any():
-        print("\n🕒 Latency Simulation Statistics:")
-        
-        # Latency stats
-        if 'latency_seconds' in contracts_df.columns:
-            latency_avg = contracts_df['latency_seconds'].mean()
-            print(f"  Latency setting: {latency_avg:.1f} seconds")
-        
-        # Note: For accurate latency impact analysis, run the algorithm twice:
-        # 1. Once with PARAMS['latency_seconds'] = 0
-        # 2. Once with PARAMS['latency_seconds'] = 3 (or your desired latency)
-        # Then compare the results between the two runs.
+        if not PARAMS.get('silent_mode', False):
+            print("\n🕒 Latency Simulation Statistics:")
+            
+            # Latency stats
+            if 'latency_seconds' in contracts_df.columns:
+                latency_avg = contracts_df['latency_seconds'].mean()
+                print(f"  Latency setting: {latency_avg:.1f} seconds")
+            
+            # Note: For accurate latency impact analysis, run the algorithm twice:
+            # 1. Once with PARAMS['latency_seconds'] = 0
+            # 2. Once with PARAMS['latency_seconds'] = 3 (or your desired latency)
+            # Then compare the results between the two runs.
     
     # Sample of contracts with entry and exit details
     if DEBUG_MODE:
@@ -2257,202 +2309,204 @@ if all_contracts:
         print(contracts_df[existing_columns].head(10))
 
 # ==================== GENERATE SUMMARY REPORT ====================
-print("\n" + "=" * 20 + " SUMMARY OF ERRORS + WARNINGS " + "=" * 20)
+if not PARAMS.get('silent_mode', False):
+    print("\n" + "=" * 20 + " SUMMARY OF ERRORS + WARNINGS " + "=" * 20)
 
-# Processing Stats Section
-# Doesn't account for days skipped due to no valid entry signals.
-print("\n📊 PROCESSING STATS:")
-print(f"  - Days attempted: {issue_tracker['days']['attempted']}")
-print(f"  - Days successfully processed: {issue_tracker['days']['processed']}")
-print(f"  - Days skipped due to errors: {issue_tracker['days']['skipped_errors']}")
-print(f"  - Days skipped due to warnings: {issue_tracker['days']['skipped_warnings']}")
+    # Processing Stats Section
+    # Doesn't account for days skipped due to no valid entry signals.
+    print("\n📊 PROCESSING STATS:")
+    print(f"  - Days attempted: {issue_tracker['days']['attempted']}")
+    print(f"  - Days successfully processed: {issue_tracker['days']['processed']}")
+    print(f"  - Days skipped due to errors: {issue_tracker['days']['skipped_errors']}")
+    print(f"  - Days skipped due to warnings: {issue_tracker['days']['skipped_warnings']}")
 
-# Data Integrity Section
-print("\n🔍 DATA INTEGRITY:")
-print(f"  - Hash mismatches: {issue_tracker['data_integrity']['hash_mismatches']}")
-mismatch_count = issue_tracker['data_integrity']['timestamp_mismatches']
-days_with_mismatches = issue_tracker['data_integrity']['days_with_mismatches']
-if mismatch_count > 0:
-    days_str = ", ".join(d for d in sorted(days_with_mismatches))
-    print(f"  - Timestamp mismatches: {mismatch_count} (on {days_str})")
-else:
-    print(f"  - Timestamp mismatches: {mismatch_count}")
+    # Data Integrity Section
+    print("\n🔍 DATA INTEGRITY:")
+    print(f"  - Hash mismatches: {issue_tracker['data_integrity']['hash_mismatches']}")
+    mismatch_count = issue_tracker['data_integrity']['timestamp_mismatches']
+    days_with_mismatches = issue_tracker['data_integrity']['days_with_mismatches']
+    if mismatch_count > 0:
+        days_str = ", ".join(d for d in sorted(days_with_mismatches))
+        print(f"  - Timestamp mismatches: {mismatch_count} (on {days_str})")
+    else:
+        print(f"  - Timestamp mismatches: {mismatch_count}")
 
-# Warning Summary
-print("\n⚠️ WARNING SUMMARY:")
+    # Warning Summary
+    print("\n⚠️ WARNING SUMMARY:")
 
-# Check if there are any warnings (excluding the 'details' list)
-total_warnings = sum(count for key, count in issue_tracker['warnings'].items() if key != 'details')
-if total_warnings > 0:
-    print("⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️")  # Print 10 warning symbols if any warnings exist
+    # Check if there are any warnings (excluding the 'details' list)
+    total_warnings = sum(count for key, count in issue_tracker['warnings'].items() if key != 'details')
+    if total_warnings > 0:
+        print("⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️")  # Print 10 warning symbols if any warnings exist
 
-ticker_warnings = issue_tracker['warnings'][f"no_{ticker}_data"]
-print(f"  - No {ticker} Data: {ticker_warnings}")
-print(f"  - Price staleness: {issue_tracker['warnings']['price_staleness']}")
-print(f"  - Short data warnings: {issue_tracker['warnings']['short_data_warnings']}")
-print(f"  - Timestamp mismatches below threshold: {issue_tracker['warnings']['timestamp_mismatches_below_threshold']}")
-print(f"  - Missing shares_per_contract: {issue_tracker['warnings']['shares_per_contract_missing']}")
-print(f"  - Non-standard contract size: {issue_tracker['warnings']['non_standard_contract_size']}")
-print(f"  - VWAP fallbacks to close price: {issue_tracker['warnings']['vwap_fallback_to_close']}")
-print(f"  - Emergency exit activations: {issue_tracker['warnings']['emergency_exit_triggered']}")
-print(f"  - Other warnings: {issue_tracker['warnings']['other']}")
+    ticker_warnings = issue_tracker['warnings'][f"no_{ticker}_data"]
+    print(f"  - No {ticker} Data: {ticker_warnings}")
+    print(f"  - Price staleness: {issue_tracker['warnings']['price_staleness']}")
+    print(f"  - Short data warnings: {issue_tracker['warnings']['short_data_warnings']}")
+    print(f"  - Timestamp mismatches below threshold: {issue_tracker['warnings']['timestamp_mismatches_below_threshold']}")
+    print(f"  - Missing shares_per_contract: {issue_tracker['warnings']['shares_per_contract_missing']}")
+    print(f"  - Non-standard contract size: {issue_tracker['warnings']['non_standard_contract_size']}")
+    print(f"  - VWAP fallbacks to close price: {issue_tracker['warnings']['vwap_fallback_to_close']}")
+    print(f"  - Emergency exit activations: {issue_tracker['warnings']['emergency_exit_triggered']}")
+    print(f"  - Other warnings: {issue_tracker['warnings']['other']}")
 
-# Show details of 'other' warnings if any exist
-if issue_tracker['warnings']['other'] > 0 and issue_tracker['warnings']['details']:
-    print("    Details:")
-    for detail in issue_tracker['warnings']['details'][:5]:  # Show first 5 to avoid clutter
-        print(f"    - {detail}")
-    if len(issue_tracker['warnings']['details']) > 5:
-        print(f"    ... and {len(issue_tracker['warnings']['details']) - 5} more")
+    # Show details of 'other' warnings if any exist
+    if issue_tracker['warnings']['other'] > 0 and issue_tracker['warnings']['details']:
+        print("    Details:")
+        for detail in issue_tracker['warnings']['details'][:5]:  # Show first 5 to avoid clutter
+            print(f"    - {detail}")
+        if len(issue_tracker['warnings']['details']) > 5:
+            print(f"    ... and {len(issue_tracker['warnings']['details']) - 5} more")
 
-# Error Summary
-print("\n❌ ERROR SUMMARY:")
+    # Error Summary
+    print("\n❌ ERROR SUMMARY:")
 
-# Check if there are any errors (excluding the 'details' list)
-total_errors = sum(count for key, count in issue_tracker['errors'].items() if key != 'details')
-if total_errors > 0:
-    print("❌❌❌❌❌❌❌❌❌❌")  # Print 10 error symbols if any errors exist
+    # Check if there are any errors (excluding the 'details' list)
+    total_errors = sum(count for key, count in issue_tracker['errors'].items() if key != 'details')
+    if total_errors > 0:
+        print("❌❌❌❌❌❌❌❌❌❌")  # Print 10 error symbols if any errors exist
 
-print(f"  - Missing option price data: {issue_tracker['errors']['missing_option_price_data']}")
-print(f"  - API connection failures: {issue_tracker['errors']['api_connection_failures']}")
-print(f"  - Missing exit data: {issue_tracker['errors']['missing_exit_data']}")
-print(f"  - No future price data: {issue_tracker['errors']['no_future_price_data']}")
-print(f"  - Forced exit at end of data: {issue_tracker['errors']['forced_exit_end_of_data']}")
-print(f"  - Exit evaluation error: {issue_tracker['errors']['exit_evaluation_error']}")
-print(f"  - Forced exit error: {issue_tracker['errors']['forced_exit_error']}")
-print(f"  - Latency entry failures: {issue_tracker['errors']['latency_entry_failures']}")
-print(f"  - Latency exit failures: {issue_tracker['errors']['latency_exit_failures']}")
-print(f"  - Other errors: {issue_tracker['errors']['other']}")
+    print(f"  - Missing option price data: {issue_tracker['errors']['missing_option_price_data']}")
+    print(f"  - API connection failures: {issue_tracker['errors']['api_connection_failures']}")
+    print(f"  - Missing exit data: {issue_tracker['errors']['missing_exit_data']}")
+    print(f"  - No future price data: {issue_tracker['errors']['no_future_price_data']}")
+    print(f"  - Forced exit at end of data: {issue_tracker['errors']['forced_exit_end_of_data']}")
+    print(f"  - Exit evaluation error: {issue_tracker['errors']['exit_evaluation_error']}")
+    print(f"  - Forced exit error: {issue_tracker['errors']['forced_exit_error']}")
+    print(f"  - Latency entry failures: {issue_tracker['errors']['latency_entry_failures']}")
+    print(f"  - Latency exit failures: {issue_tracker['errors']['latency_exit_failures']}")
+    print(f"  - Other errors: {issue_tracker['errors']['other']}")
 
-# Show details of 'other' errors if any exist
-if issue_tracker['errors']['other'] > 0 and issue_tracker['errors']['details']:
-    print("    Details:")
-    for detail in issue_tracker['errors']['details'][:5]:  # Show first 5 to avoid clutter
-        print(f"    - {detail}")
-    if len(issue_tracker['errors']['details']) > 5:
-        print(f"    ... and {len(issue_tracker['errors']['details']) - 5} more")
+    # Show details of 'other' errors if any exist
+    if issue_tracker['errors']['other'] > 0 and issue_tracker['errors']['details']:
+        print("    Details:")
+        for detail in issue_tracker['errors']['details'][:5]:  # Show first 5 to avoid clutter
+            print(f"    - {detail}")
+        if len(issue_tracker['errors']['details']) > 5:
+            print(f"    ... and {len(issue_tracker['errors']['details']) - 5} more")
 
-# Opportunity Analysis
-print("\n🎯 OPPORTUNITY ANALYSIS:")
-print(f"  - Total stretch signals: {issue_tracker['opportunities']['total_stretch_signals']}")
-print(f"  - Valid entry opportunities: {issue_tracker['opportunities']['valid_entry_opportunities']}")
-print(f"  - Failed entries due to data issues: {issue_tracker['opportunities']['failed_entries_data_issues']}")
-print(f"  - Total options contracts selected: {issue_tracker['opportunities']['total_options_contracts']}")
+    # Opportunity Analysis
+    print("\n🎯 OPPORTUNITY ANALYSIS:")
+    print(f"  - Total stretch signals: {issue_tracker['opportunities']['total_stretch_signals']}")
+    print(f"  - Valid entry opportunities: {issue_tracker['opportunities']['valid_entry_opportunities']}")
+    print(f"  - Failed entries due to data issues: {issue_tracker['opportunities']['failed_entries_data_issues']}")
+    print(f"  - Total options contracts selected: {issue_tracker['opportunities']['total_options_contracts']}")
 
-# Risk Management Statistics
-print("\n🛡️ RISK MANAGEMENT STATISTICS:")
-print(f"  - Emergency exits triggered: {issue_tracker['risk_management']['emergency_exits']}")
-if issue_tracker['risk_management']['emergency_exits'] > 0:
-    emergency_dates = sorted(issue_tracker['risk_management']['emergency_exit_dates'])
-    dates_str = ", ".join(emergency_dates)
-    print(f"  - Dates with emergency exits: {dates_str}")
-    
-print(f"  - Late entries blocked: {issue_tracker['risk_management']['late_entries_blocked']}")
-if issue_tracker['risk_management']['late_entries_blocked'] > 0:
-    late_entry_dates = sorted(issue_tracker['risk_management']['late_entry_dates'])
-    dates_str = ", ".join(late_entry_dates)
-    print(f"  - Dates with blocked late entries: {dates_str}")
-    
-print(f"  - Regular end-of-day exits: {sum(1 for c in all_contracts if c.get('exit_reason') == 'end_of_day')}")
-print(f"  - Total trades with defined exit reason: {sum(1 for c in all_contracts if c.get('exit_reason') is not None)}")
+    # Risk Management Statistics
+    print("\n🛡️ RISK MANAGEMENT STATISTICS:")
+    print(f"  - Emergency exits triggered: {issue_tracker['risk_management']['emergency_exits']}")
+    if issue_tracker['risk_management']['emergency_exits'] > 0:
+        emergency_dates = sorted(issue_tracker['risk_management']['emergency_exit_dates'])
+        dates_str = ", ".join(emergency_dates)
+        print(f"  - Dates with emergency exits: {dates_str}")
+        
+    print(f"  - Late entries blocked: {issue_tracker['risk_management']['late_entries_blocked']}")
+    if issue_tracker['risk_management']['late_entries_blocked'] > 0:
+        late_entry_dates = sorted(issue_tracker['risk_management']['late_entry_dates'])
+        dates_str = ", ".join(late_entry_dates)
+        print(f"  - Dates with blocked late entries: {dates_str}")
+        
+    print(f"  - Regular end-of-day exits: {sum(1 for c in all_contracts if c.get('exit_reason') == 'end_of_day')}")
+    print(f"  - Total trades with defined exit reason: {sum(1 for c in all_contracts if c.get('exit_reason') is not None)}")
 
-print("\n" + "=" * 20 + " END OF REPORT " + "=" * 20)
+    print("\n" + "=" * 20 + " END OF REPORT " + "=" * 20)
 
 # ==================== PERFORMANCE SUMMARY ====================
-if all_contracts:
-    # Create DataFrame if not already created
-    if 'contracts_df' not in locals():
-        contracts_df = pd.DataFrame(all_contracts)
-    
-    print("\n" + "=" * 20 + " PERFORMANCE SUMMARY " + "=" * 20)
-    
-    # 1. Total number of trades
-    total_trades = len(contracts_df)
-    print(f"\n💼 TOTAL TRADES: {total_trades}")
-    
-    # Initialize metrics with default values
-    win_rate = None
-    expectancy = None
-    avg_risk_per_trade = None
-    return_on_risk_percent = None
-    sharpe_ratio = None
-    
-    # Filter for trades with valid fully-adjusted P&L data (slippage + fees)
-    valid_pnl_contracts = contracts_df.dropna(subset=['pnl_dollars_slipped_with_fees'])
-    
-    if not valid_pnl_contracts.empty:
-        # Win Rate
-        winning_trades = valid_pnl_contracts[valid_pnl_contracts['pnl_dollars_slipped_with_fees'] > 0]
-        win_rate = len(winning_trades) / len(valid_pnl_contracts) * 100
-        print(f"\n🎯 WIN RATE: {win_rate:.2f}%")
+if not PARAMS.get('silent_mode', False):
+    if all_contracts:
+        # Create DataFrame if not already created
+        if 'contracts_df' not in locals():
+            contracts_df = pd.DataFrame(all_contracts)
         
-        # Expectancy
-        if not winning_trades.empty:
-            avg_win = winning_trades['pnl_dollars_slipped_with_fees'].mean()
-            losing_trades = valid_pnl_contracts[valid_pnl_contracts['pnl_dollars_slipped_with_fees'] < 0]
+        print("\n" + "=" * 20 + " PERFORMANCE SUMMARY " + "=" * 20)
+        
+        # 1. Total number of trades
+        total_trades = len(contracts_df)
+        print(f"\n💼 TOTAL TRADES: {total_trades}")
+        
+        # Initialize metrics with default values
+        win_rate = None
+        expectancy = None
+        avg_risk_per_trade = None
+        return_on_risk_percent = None
+        sharpe_ratio = None
+        
+        # Filter for trades with valid fully-adjusted P&L data (slippage + fees)
+        valid_pnl_contracts = contracts_df.dropna(subset=['pnl_dollars_slipped_with_fees'])
+        
+        if not valid_pnl_contracts.empty:
+            # Win Rate
+            winning_trades = valid_pnl_contracts[valid_pnl_contracts['pnl_dollars_slipped_with_fees'] > 0]
+            win_rate = len(winning_trades) / len(valid_pnl_contracts) * 100
+            print(f"\n🎯 WIN RATE: {win_rate:.2f}%")
             
-            if not losing_trades.empty:
-                avg_loss = abs(losing_trades['pnl_dollars_slipped_with_fees'].mean())
-                loss_rate = 1 - (len(winning_trades) / len(valid_pnl_contracts))
+            # Expectancy
+            if not winning_trades.empty:
+                avg_win = winning_trades['pnl_dollars_slipped_with_fees'].mean()
+                losing_trades = valid_pnl_contracts[valid_pnl_contracts['pnl_dollars_slipped_with_fees'] < 0]
                 
-                expectancy = (win_rate/100 * avg_win) - (loss_rate * avg_loss)
-                print(f"\n💡 EXPECTANCY: ${expectancy:.2f} per trade")
-            else:
-                print("\n💡 EXPECTANCY: ∞ (no losing trades)")
-                # Set expectancy to a high value for risk-adjusted calculations if needed
-                expectancy = float('inf')
-        
-        # Risk calculation (independent of expectancy)
-        # Set up components for risk calculation
-        contract_fees = PARAMS['brokerage_fee_per_contract'] + PARAMS['exchange_fee_per_contract']
-        round_trip_fees = contract_fees * 2 * PARAMS['contracts_per_trade']  # Both entry and exit
-        stop_loss_decimal = abs(PARAMS['stop_loss_percent']) / 100  # Convert to positive decimal
-        
-        # Calculate capital at risk (total position value)
-        valid_pnl_contracts['capital_at_risk'] = (
-            valid_pnl_contracts['entry_option_price_slipped'] * 
-            valid_pnl_contracts['shares_per_contract'] * 
-            PARAMS['contracts_per_trade']
-        )
-        
-        # Calculate max loss per trade (stop loss + fees)
-        valid_pnl_contracts['max_loss_per_trade'] = (
-            valid_pnl_contracts['capital_at_risk'] * stop_loss_decimal
-        ) + round_trip_fees
-        
-        # Calculate average risk per trade
-        avg_risk_per_trade = valid_pnl_contracts['max_loss_per_trade'].mean()
-        print(f"\n💵 AVERAGE RISK PER TRADE: ${avg_risk_per_trade:.2f}")
-        
-        # Risk-adjusted expectancy
-        if 'expectancy' in locals() and avg_risk_per_trade > 0:
-            if expectancy != float('inf'):
-                risk_adjusted_expectancy = expectancy / avg_risk_per_trade
-                return_on_risk_percent = risk_adjusted_expectancy * 100
-                print(f"\n📊 AVERAGE RETURN ON RISK: {return_on_risk_percent:.2f}%")
-            else:
-                print(f"\n📊 AVERAGE RETURN ON RISK: ∞% (no losing trades)")
-                return_on_risk_percent = float('inf')
-        
-        # Sharpe Ratio (using daily returns, fully adjusted)
-        # Group by date to get daily returns
-        daily_returns = valid_pnl_contracts.groupby(valid_pnl_contracts['entry_time'].dt.date)['pnl_dollars_slipped_with_fees'].sum()
-        
-        if len(daily_returns) > 1:  # Need at least 2 days to calculate Sharpe
-            # Unannualized Sharpe: Mean daily return / StdDev of daily returns
-            mean_daily_return = daily_returns.mean()
-            std_daily_return = daily_returns.std()
+                if not losing_trades.empty:
+                    avg_loss = abs(losing_trades['pnl_dollars_slipped_with_fees'].mean())
+                    loss_rate = 1 - (len(winning_trades) / len(valid_pnl_contracts))
+                    
+                    expectancy = (win_rate/100 * avg_win) - (loss_rate * avg_loss)
+                    print(f"\n💡 EXPECTANCY: ${expectancy:.2f} per trade")
+                else:
+                    print("\n💡 EXPECTANCY: ∞ (no losing trades)")
+                    # Set expectancy to a high value for risk-adjusted calculations if needed
+                    expectancy = float('inf')
             
-            if std_daily_return > 0:  # Prevent division by zero
-                sharpe_ratio = mean_daily_return / std_daily_return
-                print(f"\n📈 UNANNUALIZED SHARPE RATIO: {sharpe_ratio:.2f}")
+            # Risk calculation (independent of expectancy)
+            # Set up components for risk calculation
+            contract_fees = PARAMS['brokerage_fee_per_contract'] + PARAMS['exchange_fee_per_contract']
+            round_trip_fees = contract_fees * 2 * PARAMS['contracts_per_trade']  # Both entry and exit
+            stop_loss_decimal = abs(PARAMS['stop_loss_percent']) / 100  # Convert to positive decimal
+            
+            # Calculate capital at risk (total position value)
+            valid_pnl_contracts['capital_at_risk'] = (
+                valid_pnl_contracts['entry_option_price_slipped'] * 
+                valid_pnl_contracts['shares_per_contract'] * 
+                PARAMS['contracts_per_trade']
+            )
+            
+            # Calculate max loss per trade (stop loss + fees)
+            valid_pnl_contracts['max_loss_per_trade'] = (
+                valid_pnl_contracts['capital_at_risk'] * stop_loss_decimal
+            ) + round_trip_fees
+            
+            # Calculate average risk per trade
+            avg_risk_per_trade = valid_pnl_contracts['max_loss_per_trade'].mean()
+            print(f"\n💵 AVERAGE RISK PER TRADE: ${avg_risk_per_trade:.2f}")
+            
+            # Risk-adjusted expectancy
+            if 'expectancy' in locals() and avg_risk_per_trade > 0:
+                if expectancy != float('inf'):
+                    risk_adjusted_expectancy = expectancy / avg_risk_per_trade
+                    return_on_risk_percent = risk_adjusted_expectancy * 100
+                    print(f"\n📊 AVERAGE RETURN ON RISK: {return_on_risk_percent:.2f}%")
+                else:
+                    print(f"\n📊 AVERAGE RETURN ON RISK: ∞% (no losing trades)")
+                    return_on_risk_percent = float('inf')
+            
+            # Sharpe Ratio (using daily returns, fully adjusted)
+            # Group by date to get daily returns
+            daily_returns = valid_pnl_contracts.groupby(valid_pnl_contracts['entry_time'].dt.date)['pnl_dollars_slipped_with_fees'].sum()
+            
+            if len(daily_returns) > 1:  # Need at least 2 days to calculate Sharpe
+                # Unannualized Sharpe: Mean daily return / StdDev of daily returns
+                mean_daily_return = daily_returns.mean()
+                std_daily_return = daily_returns.std()
+                
+                if std_daily_return > 0:  # Prevent division by zero
+                    sharpe_ratio = mean_daily_return / std_daily_return
+                    print(f"\n📈 UNANNUALIZED SHARPE RATIO: {sharpe_ratio:.2f}")
+                else:
+                    print("\n📈 UNANNUALIZED SHARPE RATIO: N/A (insufficient volatility)")
+                    sharpe_ratio = None
             else:
-                print("\n📈 UNANNUALIZED SHARPE RATIO: N/A (insufficient volatility)")
+                print("\n📈 SHARPE RATIO: N/A (need data from at least two days)")
                 sharpe_ratio = None
         else:
-            print("\n📈 SHARPE RATIO: N/A (need data from at least two days)")
-            sharpe_ratio = None
-    else:
-        print("\n⚠️ No valid P&L data available for performance metrics")
+            print("\n⚠️ No valid P&L data available for performance metrics")
 
-print("\n" + "=" * 20 + " END OF PERFORMANCE SUMMARY " + "=" * 20)
+    print("\n" + "=" * 20 + " END OF PERFORMANCE SUMMARY " + "=" * 20)
