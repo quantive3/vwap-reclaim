@@ -32,8 +32,8 @@ def initialize_parameters():
     """
     return {
         # Backtest period
-        'start_date': "2023-01-04",
-        'end_date': "2023-01-04",
+        'start_date': "2023-01-01",
+        'end_date': "2023-01-31",
         
         # Strategy parameters
         'stretch_threshold': 0.003,  # 0.3%
