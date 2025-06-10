@@ -376,6 +376,72 @@ def load_chain_data(date, cache_dir, api_key, params, debug_mode=False):
 # Get parameters from initialization function
 PARAMS = initialize_parameters()
 
+# === DataLoader Class ===
+class DataLoader:
+    """
+    Data loading class that bundles SPY, option chain, and option price data loading.
+    This is a pure wrapper around existing functions to maintain exact functional equivalence.
+    """
+    
+    def __init__(self, api_key, cache_dir, params, debug_mode=False, silent_mode=False):
+        """
+        Initialize the DataLoader with configuration parameters.
+        
+        Args:
+            api_key (str): Polygon API key
+            cache_dir (str): Base cache directory path
+            params (dict): Strategy parameters dictionary
+            debug_mode (bool): Whether to enable debug output
+            silent_mode (bool): Whether to suppress non-debug output
+        """
+        self.api_key = api_key
+        self.cache_dir = cache_dir
+        self.params = params
+        self.debug_mode = debug_mode
+        self.silent_mode = silent_mode
+    
+    def load_spy(self, date):
+        """
+        Load SPY price data for a given date.
+        
+        Args:
+            date (str): Date string in format 'YYYY-MM-DD'
+            
+        Returns:
+            pd.DataFrame: DataFrame with SPY price and VWAP data for the specified date
+        """
+        return load_spy_data(date, self.cache_dir, self.api_key, self.params, debug_mode=self.debug_mode)
+    
+    def load_chain(self, date):
+        """
+        Load option chain data for a given date.
+        
+        Args:
+            date (str): Date string in format 'YYYY-MM-DD'
+            
+        Returns:
+            pd.DataFrame: DataFrame with option chain data for the specified date
+        """
+        return load_chain_data(date, self.cache_dir, self.api_key, self.params, debug_mode=self.debug_mode)
+    
+    def load_option(self, ticker, date, df_rth_filled, signal_idx=None):
+        """
+        Load and process option price data for a given option ticker and date.
+        
+        Args:
+            ticker (str): The option ticker symbol to load data for
+            date (str): Date string in format 'YYYY-MM-DD'
+            df_rth_filled (pd.DataFrame): DataFrame with SPY price data for timestamp alignment
+            signal_idx (int, optional): Optional signal index for debug output
+            
+        Returns:
+            tuple: (df_option_aligned, option_entry_price, status) where:
+                - df_option_aligned: DataFrame with aligned option price data
+                - option_entry_price: The entry price for the option (or None if no valid price found)
+                - status: Dictionary with status information
+        """
+        return load_option_data(ticker, date, self.cache_dir, df_rth_filled, self.api_key, self.params, signal_idx=signal_idx)
+
 # Print API key loading status now that PARAMS is available
 if API_KEY_LOADED_FROM_SECRET and not PARAMS.get('silent_mode', False):
     print("✅ API key loaded from secret.py")
@@ -1600,6 +1666,9 @@ def run_backtest(params, api_key, cache_dir, issue_tracker):
     business_days = pd.date_range(start=start_date, end=end_date, freq="B")
     ticker = params['ticker']
     
+    # Initialize DataLoader
+    data_loader = DataLoader(api_key, cache_dir, params, debug_mode=debug_mode, silent_mode=params.get('silent_mode', False))
+    
     # Initialize tracking variables
     total_entry_intent_signals = 0
     days_processed = 0
@@ -1616,7 +1685,7 @@ def run_backtest(params, api_key, cache_dir, issue_tracker):
 
         try:
             # === STEP 5a: Load or pull SPY OHLCV ===
-            df_rth_filled = load_spy_data(date, cache_dir, api_key, params, debug_mode=debug_mode)
+            df_rth_filled = data_loader.load_spy(date)
             
             # If data loading failed, skip this day
             if df_rth_filled is None:
@@ -1624,7 +1693,7 @@ def run_backtest(params, api_key, cache_dir, issue_tracker):
                 continue
 
             # === STEP 5b: Load or pull option chain ===
-            df_chain = load_chain_data(date, cache_dir, api_key, params, debug_mode=debug_mode)
+            df_chain = data_loader.load_chain(date)
             
             # If data loading failed, skip this day
             if df_chain is None:
@@ -1710,13 +1779,10 @@ def run_backtest(params, api_key, cache_dir, issue_tracker):
                         option_ticker = selected_contract['ticker']
                         
                         # === STEP 5d: Load or pull option price data ===
-                        df_option_aligned, option_entry_price, option_load_status = load_option_data(
-                            option_ticker=option_ticker,
+                        df_option_aligned, option_entry_price, option_load_status = data_loader.load_option(
+                            ticker=option_ticker,
                             date=date,
-                            cache_dir=cache_dir,
                             df_rth_filled=df_rth_filled,
-                            api_key=api_key,
-                            params=params,
                             signal_idx=idx
                         )
                         
