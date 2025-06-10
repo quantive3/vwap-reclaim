@@ -32,8 +32,8 @@ def initialize_parameters():
     """
     return {
         # Backtest period
-        'start_date': "2023-01-01",
-        'end_date': "2023-01-31",
+        'start_date': "2023-01-04",
+        'end_date': "2023-01-04",
         
         # Strategy parameters
         'stretch_threshold': 0.003,  # 0.3%
@@ -1643,31 +1643,24 @@ days_processed = 0
 all_contracts = []  # Master list to store all contract data
 
 # === STEP 8: Define the backtest function ===
-def run_backtest(params, api_key, cache_dir, issue_tracker):
+def run_backtest(params, data_loader, issue_tracker):
     """
     Run a backtest over a date range using the specified parameters.
     
     Args:
         params (dict): Dictionary of strategy parameters
-        api_key (str): Polygon API key
-        cache_dir (str): Base cache directory path
+        data_loader (DataLoader): Initialized DataLoader instance
         issue_tracker (dict): The issue tracking dictionary to use
         
     Returns:
         dict: Summary metrics from the backtest
     """
-    # Setup cache directories
-    spy_dir, chain_dir, option_dir = setup_cache_directories(cache_dir)
-    
     # Get parameters
     debug_mode = params['debug_mode']
     start_date = params['start_date']
     end_date = params['end_date']
     business_days = pd.date_range(start=start_date, end=end_date, freq="B")
     ticker = params['ticker']
-    
-    # Initialize DataLoader
-    data_loader = DataLoader(api_key, cache_dir, params, debug_mode=debug_mode, silent_mode=params.get('silent_mode', False))
     
     # Initialize tracking variables
     total_entry_intent_signals = 0
@@ -2097,8 +2090,14 @@ def run_backtest(params, api_key, cache_dir, issue_tracker):
 
 if __name__ == "__main__":
     # === STEP 8: Run backtest ===
+    # Setup cache directories
+    spy_dir, chain_dir, option_dir = setup_cache_directories(CACHE_DIR)
+    
+    # Initialize DataLoader
+    data_loader = DataLoader(API_KEY, CACHE_DIR, PARAMS, debug_mode=PARAMS['debug_mode'], silent_mode=PARAMS.get('silent_mode', False))
+    
     # Run the backtest
-    backtest_results = run_backtest(PARAMS, API_KEY, CACHE_DIR, issue_tracker)
+    backtest_results = run_backtest(PARAMS, data_loader, issue_tracker)
 
     # Extract results
     total_entry_intent_signals = backtest_results['total_entry_intent_signals']
