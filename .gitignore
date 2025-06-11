@@ -3,3 +3,4 @@ commit archive - before gh/
 polygon_cache/
 secret.py
 __pycache__/
+random_search_results.csv
