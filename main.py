@@ -82,7 +82,7 @@ def initialize_parameters():
         'slippage_percent': 0.01,  # 1% slippage
         
         # Debug settings
-        'debug_mode': True,  # Enable/disable debug outputs
+        'debug_mode': False,  # Enable/disable debug outputs
         
         # Silent mode for grid searches
         'silent_mode': False,  # Enable/disable all non-debug print outputs
@@ -1530,7 +1530,8 @@ def process_exits_for_contract(contract, params):
                 if exit_is_stale and params['report_stale_prices']:
                     entry_date = contract['entry_time'].strftime("%Y-%m-%d")
                     staleness_msg = f"Using stale option price at exit for {contract['ticker']} - {exit_staleness:.1f} seconds old"
-                    print(f"⚠️ {staleness_msg}")
+                    if not params.get('silent_mode', False):
+                        print(f"⚠️ {staleness_msg}")
                     track_issue("warnings", "price_staleness", staleness_msg, date=entry_date)
                 
                 if params['debug_mode']:
@@ -1545,7 +1546,8 @@ def process_exits_for_contract(contract, params):
         except Exception as e:
             # Log the error and track it
             error_msg = f"Error evaluating exit for {contract['ticker']}: {str(e)}"
-            print(f"❌ {error_msg}")
+            if not params.get('silent_mode', False):
+                print(f"❌ {error_msg}")
             
             # Get entry date for tracking
             entry_date = entry_time.strftime("%Y-%m-%d")
@@ -1606,11 +1608,13 @@ def process_exits_for_contract(contract, params):
             if exit_is_stale and params['report_stale_prices']:
                 entry_date = contract['entry_time'].strftime("%Y-%m-%d")
                 staleness_msg = f"Using stale option price at forced exit for {contract['ticker']} - {exit_staleness:.1f} seconds old"
-                print(f"⚠️ {staleness_msg}")
+                if not params.get('silent_mode', False):
+                    print(f"⚠️ {staleness_msg}")
                 track_issue("warnings", "price_staleness", staleness_msg, date=entry_date)
             
             # Always show critical warning and track the issue
-            print(f"❌ Forced exit at end of available data: {contract['ticker']}")
+            if not params.get('silent_mode', False):
+                print(f"❌ Forced exit at end of available data: {contract['ticker']}")
             
             # Get entry date for tracking
             entry_date = entry_time.strftime("%Y-%m-%d")
@@ -1622,7 +1626,8 @@ def process_exits_for_contract(contract, params):
         except Exception as e:
             # Log the error and track it
             error_msg = f"Error during forced exit for {contract['ticker']}: {str(e)}"
-            print(f"❌ {error_msg}")
+            if not params.get('silent_mode', False):
+                print(f"❌ {error_msg}")
             
             # Get entry date for tracking
             entry_date = entry_time.strftime("%Y-%m-%d")
@@ -1873,7 +1878,8 @@ def run_backtest(params, data_loader, issue_tracker):
                         
                         if is_price_stale and params['report_stale_prices']:
                             staleness_msg = f"Signal #{idx+1}: Using stale option price at entry - {price_staleness:.1f} seconds old"
-                            print(f"⚠️ {staleness_msg}")
+                            if not params.get('silent_mode', False):
+                                print(f"⚠️ {staleness_msg}")
                             track_issue("warnings", "price_staleness", staleness_msg, date=date)
                         
                         # Store contract with complete entry details
