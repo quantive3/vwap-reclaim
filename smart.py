@@ -149,7 +149,21 @@ def run_optimization(n_trials=100, study_name="vwap_bounce_optimization"):
     print(f"📈 Parameters: 9 dimensions")
     print("-" * 50)
     
-    # Create study
+    # Check for existing study file
+    study_file = 'vwap_optimization_study.pkl'
+    
+    if ENABLE_PERSISTENCE and os.path.exists(study_file):
+        # This branch will be used in Step 3
+        print(f"📂 Found existing study file: {study_file}")
+        print("🔄 Persistence is enabled - will load existing study in Step 3")
+    else:
+        if os.path.exists(study_file):
+            print(f"📂 Found existing study file: {study_file}")
+            print("🆕 Persistence disabled - creating fresh study (will overwrite)")
+        else:
+            print("🆕 No existing study found - creating new study")
+    
+    # Create study (always creates new study in Step 2)
     study = optuna.create_study(
         direction='maximize',  # Maximize return on risk
         study_name=study_name,
