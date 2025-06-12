@@ -18,7 +18,7 @@ from main import (
 )
 
 # Configuration flags
-ENABLE_PERSISTENCE = False  # Set to True to accumulate trials across runs
+ENABLE_PERSISTENCE = True  # Set to True to accumulate trials across runs
 
 # Entry windows mapping - used throughout the optimization
 ENTRY_WINDOWS = {
@@ -153,30 +153,41 @@ def run_optimization(n_trials=100, study_name="vwap_bounce_optimization"):
     study_file = 'vwap_optimization_study.pkl'
     
     if ENABLE_PERSISTENCE and os.path.exists(study_file):
-        # This branch will be used in Step 3
-        print(f"📂 Found existing study file: {study_file}")
-        print("🔄 Persistence is enabled - will load existing study in Step 3")
+        # Load existing study
+        try:
+            import joblib
+            study = joblib.load(study_file)
+            print(f"📂 Loaded existing study with {len(study.trials)} trials")
+            print(f"🔄 Will add {n_trials} more trials (total will be {len(study.trials) + n_trials})")
+        except Exception as e:
+            print(f"⚠️ Error loading study file: {e}")
+            print("🆕 Creating fresh study instead")
+            study = optuna.create_study(
+                direction='maximize',
+                study_name=study_name,
+                sampler=optuna.samplers.TPESampler(seed=36)
+            )
     else:
         if os.path.exists(study_file):
             print(f"📂 Found existing study file: {study_file}")
             print("🆕 Persistence disabled - creating fresh study (will overwrite)")
         else:
             print("🆕 No existing study found - creating new study")
-    
-    # Create study (always creates new study in Step 2)
-    study = optuna.create_study(
-        direction='maximize',  # Maximize return on risk
-        study_name=study_name,
-        # ═══ SEEDING OPTIONS ═══
-        # For debugging/testing - same results every time:
-        sampler=optuna.samplers.TPESampler(seed=36)
         
-        # For production runs - let Optuna explore freely (comment out line above, uncomment below):
-        # sampler=optuna.samplers.TPESampler()
-        
-        # For different reproducible runs - change the seed number:
-        # sampler=optuna.samplers.TPESampler(seed=123)
-    )
+        # Create fresh study
+        study = optuna.create_study(
+            direction='maximize',  # Maximize return on risk
+            study_name=study_name,
+            # ═══ SEEDING OPTIONS ═══
+            # For debugging/testing - same results every time:
+            sampler=optuna.samplers.TPESampler(seed=36)
+            
+            # For production runs - let Optuna explore freely (comment out line above, uncomment below):
+            # sampler=optuna.samplers.TPESampler()
+            
+            # For different reproducible runs - change the seed number:
+            # sampler=optuna.samplers.TPESampler(seed=123)
+        )
     
     # Run optimization
     study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
