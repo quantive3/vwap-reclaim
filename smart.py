@@ -17,6 +17,15 @@ from main import (
     CACHE_DIR
 )
 
+# Entry windows mapping - used throughout the optimization
+ENTRY_WINDOWS = {
+    0: (time(9, 30), time(10, 30)),   # 9:30 to 10:30
+    1: (time(9, 30), time(12, 0)),    # 9:30 to 12:00
+    2: (time(12, 0), time(15, 0)),    # 12:00 to 15:00
+    3: (time(15, 0), time(15, 45)),   # 15:00 to 15:45
+    4: (time(9, 30), time(15, 45))    # 9:30 to 15:45
+}
+
 def create_optimized_params(trial):
     """
     Create parameter dictionary with Optuna trial suggestions.
@@ -29,15 +38,6 @@ def create_optimized_params(trial):
     """
     # Start with base parameters
     base_params = initialize_parameters()
-    
-    # Entry windows mapping
-    entry_windows = {
-        0: (time(9, 30), time(10, 30)),   # 9:30 to 10:30
-        1: (time(9, 30), time(12, 0)),    # 9:30 to 12:00
-        2: (time(12, 0), time(15, 0)),    # 12:00 to 15:00
-        3: (time(15, 0), time(15, 45)),   # 15:00 to 15:45
-        4: (time(9, 30), time(15, 45))    # 9:30 to 15:45
-    }
     
     # Suggest parameters from the specified ranges
     entry_window_idx = trial.suggest_categorical('entry_window', [0, 1, 2, 3, 4])
@@ -55,7 +55,7 @@ def create_optimized_params(trial):
     optimized_params = copy.deepcopy(base_params)
     
     # Entry window
-    start_time, end_time = entry_windows[entry_window_idx]
+    start_time, end_time = ENTRY_WINDOWS[entry_window_idx]
     optimized_params['entry_start_time'] = start_time
     optimized_params['entry_end_time'] = end_time
     
@@ -152,7 +152,7 @@ def run_optimization(n_trials=100, study_name="vwap_bounce_optimization"):
         study_name=study_name,
         # ═══ SEEDING OPTIONS ═══
         # For debugging/testing - same results every time:
-        sampler=optuna.samplers.TPESampler(seed=42)
+        sampler=optuna.samplers.TPESampler(seed=36)
         
         # For production runs - let Optuna explore freely (comment out line above, uncomment below):
         # sampler=optuna.samplers.TPESampler()
@@ -244,20 +244,11 @@ def run_best_trial_detailed(study):
     # Create full parameter set
     base_params = initialize_parameters()
     
-    # Entry windows mapping
-    entry_windows = {
-        0: (time(9, 30), time(10, 30)),
-        1: (time(9, 30), time(12, 0)),
-        2: (time(12, 0), time(15, 0)),
-        3: (time(15, 0), time(15, 45)),
-        4: (time(9, 30), time(15, 45))
-    }
-    
     # Apply best parameters
     best_params = copy.deepcopy(base_params)
     
     # Entry window
-    start_time, end_time = entry_windows[best_params_raw['entry_window']]
+    start_time, end_time = ENTRY_WINDOWS[best_params_raw['entry_window']]
     best_params['entry_start_time'] = start_time
     best_params['entry_end_time'] = end_time
     
@@ -314,7 +305,7 @@ def run_best_trial_detailed(study):
 
 if __name__ == "__main__":
     # Configuration
-    N_TRIALS = 25  # Adjust based on your computational budget
+    N_TRIALS = 6  # Adjust based on your computational budget
     
     print("🤖 VWAP Bounce Strategy - Smart Grid Search")
     print("=" * 50)
