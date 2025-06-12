@@ -150,7 +150,15 @@ def run_optimization(n_trials=100, study_name="vwap_bounce_optimization"):
     study = optuna.create_study(
         direction='maximize',  # Maximize return on risk
         study_name=study_name,
-        sampler=optuna.samplers.TPESampler(seed=42)  # Reproducible results
+        # ═══ SEEDING OPTIONS ═══
+        # For debugging/testing - same results every time:
+        sampler=optuna.samplers.TPESampler(seed=42)
+        
+        # For production runs - let Optuna explore freely (comment out line above, uncomment below):
+        # sampler=optuna.samplers.TPESampler()
+        
+        # For different reproducible runs - change the seed number:
+        # sampler=optuna.samplers.TPESampler(seed=123)
     )
     
     # Run optimization
