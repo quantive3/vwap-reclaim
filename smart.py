@@ -17,6 +17,9 @@ from main import (
     CACHE_DIR
 )
 
+# Configuration flags
+ENABLE_PERSISTENCE = False  # Set to True to accumulate trials across runs
+
 # Entry windows mapping - used throughout the optimization
 ENTRY_WINDOWS = {
     0: (time(9, 30), time(10, 30)),   # 9:30 to 10:30
