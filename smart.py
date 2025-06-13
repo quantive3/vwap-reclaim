@@ -42,6 +42,28 @@ def create_sampler():
     else:
         return optuna.samplers.TPESampler()  # No seed = random
 
+def validate_loaded_study(study):
+    """
+    Basic safety check for loaded study - fails fast on obvious problems.
+    
+    Args:
+        study: Loaded Optuna study object
+        
+    Raises:
+        ValueError: If study has critical issues
+    """
+    if len(study.trials) == 0:
+        raise ValueError("⛔ Loaded study has no trials - file may be corrupted")
+    
+    completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+    if len(completed_trials) == 0:
+        raise ValueError("⛔ Loaded study has no completed trials - all failed")
+    
+    if study.direction.name != 'MAXIMIZE':
+        raise ValueError("⛔ Loaded study direction mismatch - expected MAXIMIZE")
+    
+    print(f"✅ Study validation passed - {len(completed_trials)} valid trials")
+
 def create_optimized_params(trial):
     """
     Create parameter dictionary with Optuna trial suggestions.
@@ -171,6 +193,10 @@ def run_optimization(n_trials=100, study_name="vwap_bounce_optimization"):
             import joblib
             study = joblib.load(study_file)
             print(f"📂 Loaded existing study with {len(study.trials)} trials")
+            
+            # Validate the loaded study
+            validate_loaded_study(study)
+            
             print(f"🔄 Will add {n_trials} more trials (total will be {len(study.trials) + n_trials})")
         except Exception as e:
             print(f"⚠️ Error loading study file: {e}")
@@ -338,7 +364,7 @@ def run_best_trial_detailed(study):
 
 if __name__ == "__main__":
     # Configuration
-    N_TRIALS = 6  # Adjust based on your computational budget
+    N_TRIALS = 3  # Adjust based on your computational budget
     
     print("🤖 VWAP Bounce Strategy - Smart Grid Search")
     print("=" * 50)
