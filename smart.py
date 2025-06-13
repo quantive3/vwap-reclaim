@@ -19,6 +19,7 @@ from main import (
 
 # Configuration flags
 ENABLE_PERSISTENCE = True  # Set to True to accumulate trials across runs
+OPTIMIZATION_SEED = None     # Set to a number for reproducible results, or None for random
 
 # Entry windows mapping - used throughout the optimization
 ENTRY_WINDOWS = {
@@ -28,6 +29,18 @@ ENTRY_WINDOWS = {
     3: (time(15, 0), time(15, 45)),   # 15:00 to 15:45
     4: (time(9, 30), time(15, 45))    # 9:30 to 15:45
 }
+
+def create_sampler():
+    """
+    Create Optuna sampler based on configuration.
+    
+    Returns:
+        optuna.samplers.BaseSampler: Configured sampler
+    """
+    if OPTIMIZATION_SEED is not None:
+        return optuna.samplers.TPESampler(seed=OPTIMIZATION_SEED)
+    else:
+        return optuna.samplers.TPESampler()  # No seed = random
 
 def create_optimized_params(trial):
     """
@@ -165,7 +178,7 @@ def run_optimization(n_trials=100, study_name="vwap_bounce_optimization"):
             study = optuna.create_study(
                 direction='maximize',
                 study_name=study_name,
-                sampler=optuna.samplers.TPESampler(seed=36)
+                sampler=create_sampler()
             )
     else:
         if os.path.exists(study_file):
@@ -178,15 +191,7 @@ def run_optimization(n_trials=100, study_name="vwap_bounce_optimization"):
         study = optuna.create_study(
             direction='maximize',  # Maximize return on risk
             study_name=study_name,
-            # ═══ SEEDING OPTIONS ═══
-            # For debugging/testing - same results every time:
-            sampler=optuna.samplers.TPESampler(seed=36)
-            
-            # For production runs - let Optuna explore freely (comment out line above, uncomment below):
-            # sampler=optuna.samplers.TPESampler()
-            
-            # For different reproducible runs - change the seed number:
-            # sampler=optuna.samplers.TPESampler(seed=123)
+            sampler=create_sampler()
         )
     
     # Run optimization
