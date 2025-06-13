@@ -18,9 +18,9 @@ from main import (
 )
 
 # Configuration flags
-ENABLE_PERSISTENCE = True  # Set to True to accumulate trials across runs
-OPTIMIZATION_SEED = None     # Set to a number for reproducible results, or None for random
-N_TRIALS = 3  # Adjust based on your computational budget
+ENABLE_PERSISTENCE = False  # Set to True to accumulate trials across runs
+OPTIMIZATION_SEED = 36     # Set to a number for reproducible results, or None for random
+N_TRIALS = 6  # Adjust based on your computational budget
 
 # Entry windows mapping - used throughout the optimization
 ENTRY_WINDOWS = {
@@ -323,14 +323,14 @@ def run_best_trial_detailed(study):
     best_params['option_selection_mode'] = best_params_raw['option_selection_mode']
     
     # Enable detailed output
-    best_params['silent_mode'] = False
+    best_params['silent_mode'] = True
     best_params['debug_mode'] = False  # Keep false to avoid too much noise
     
     # Run detailed backtest
     print("Running detailed backtest with optimal parameters...")
     
     issue_tracker = initialize_issue_tracker(best_params)
-    data_loader = DataLoader(API_KEY, CACHE_DIR, best_params, debug_mode=False, silent_mode=False)
+    data_loader = DataLoader(API_KEY, CACHE_DIR, best_params, debug_mode=False, silent_mode=True)
     
     detailed_results = run_backtest(best_params, data_loader, issue_tracker)
     
