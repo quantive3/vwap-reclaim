@@ -150,6 +150,13 @@ def objective(trial):
         metrics = backtest_results.get('metrics', {})
         return_on_risk = metrics.get('return_on_risk_percent')
         
+        # Store detailed metrics as user attributes
+        trial.set_user_attr('total_trades', metrics.get('total_trades', 0))
+        trial.set_user_attr('win_rate', metrics.get('win_rate'))
+        trial.set_user_attr('expectancy', metrics.get('expectancy'))
+        trial.set_user_attr('avg_risk_per_trade', metrics.get('avg_risk_per_trade'))
+        trial.set_user_attr('sharpe_ratio', metrics.get('sharpe_ratio'))
+        
         # Handle edge cases
         if return_on_risk is None:
             # No valid trades or unable to calculate
@@ -165,6 +172,8 @@ def objective(trial):
             
     except Exception as e:
         print(f"Error in trial: {str(e)}")
+        # Store error info
+        trial.set_user_attr('error', str(e))
         # Return large negative value for failed trials
         return -1000.0
 
@@ -322,20 +331,22 @@ def run_best_trial_detailed(study):
     best_params['strikes_depth'] = best_params_raw['strikes_depth']
     best_params['option_selection_mode'] = best_params_raw['option_selection_mode']
     
-    # Enable detailed output
-    best_params['silent_mode'] = True
-    best_params['debug_mode'] = False  # Keep false to avoid too much noise
+    # Get stored metrics from the best trial (no re-run needed)
+    best_trial = study.best_trial
+    print("Retrieving stored metrics from optimization...")
     
-    # Run detailed backtest
-    print("Running detailed backtest with optimal parameters...")
+    # Extract metrics from user attributes
+    metrics = {
+        'total_trades': best_trial.user_attrs.get('total_trades'),
+        'win_rate': best_trial.user_attrs.get('win_rate'),
+        'expectancy': best_trial.user_attrs.get('expectancy'),
+        'avg_risk_per_trade': best_trial.user_attrs.get('avg_risk_per_trade'),
+        'return_on_risk_percent': best_trial.value,  # This is the objective value
+        'sharpe_ratio': best_trial.user_attrs.get('sharpe_ratio')
+    }
     
-    issue_tracker = initialize_issue_tracker(best_params)
-    data_loader = DataLoader(API_KEY, CACHE_DIR, best_params, debug_mode=False, silent_mode=True)
-    
-    detailed_results = run_backtest(best_params, data_loader, issue_tracker)
-    
-    # Print detailed metrics
-    metrics = detailed_results.get('metrics', {})
+    # Create a mock detailed_results for compatibility
+    detailed_results = {'metrics': metrics}
     
     print(f"\n📈 DETAILED PERFORMANCE METRICS:")
     print(f"   Total Trades: {metrics.get('total_trades', 'N/A')}")
