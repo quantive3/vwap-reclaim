@@ -19,7 +19,7 @@ from main import (
 
 # Configuration flags
 ENABLE_PERSISTENCE = False  # Set to True to accumulate trials across runs
-OPTIMIZATION_SEED = 36     # Set to a number for reproducible results, or None for random
+OPTIMIZATION_SEED = 28     # Set to a number for reproducible results, or None for random
 N_TRIALS = 6  # Adjust based on your computational budget
 
 # Entry windows mapping - used throughout the optimization
@@ -150,12 +150,10 @@ def objective(trial):
         metrics = backtest_results.get('metrics', {})
         return_on_risk = metrics.get('return_on_risk_percent')
         
-        # Store detailed metrics as user attributes
-        trial.set_user_attr('total_trades', metrics.get('total_trades', 0))
-        trial.set_user_attr('win_rate', metrics.get('win_rate'))
-        trial.set_user_attr('expectancy', metrics.get('expectancy'))
-        trial.set_user_attr('avg_risk_per_trade', metrics.get('avg_risk_per_trade'))
-        trial.set_user_attr('sharpe_ratio', metrics.get('sharpe_ratio'))
+        # Store ALL metrics as user attributes dynamically
+        for metric_name, metric_value in metrics.items():
+            if metric_value is not None:
+                trial.set_user_attr(metric_name, metric_value)
         
         # Handle edge cases
         if return_on_risk is None:
@@ -335,42 +333,35 @@ def run_best_trial_detailed(study):
     best_trial = study.best_trial
     print("Retrieving stored metrics from optimization...")
     
-    # Extract metrics from user attributes
-    metrics = {
-        'total_trades': best_trial.user_attrs.get('total_trades'),
-        'win_rate': best_trial.user_attrs.get('win_rate'),
-        'expectancy': best_trial.user_attrs.get('expectancy'),
-        'avg_risk_per_trade': best_trial.user_attrs.get('avg_risk_per_trade'),
-        'return_on_risk_percent': best_trial.value,  # This is the objective value
-        'sharpe_ratio': best_trial.user_attrs.get('sharpe_ratio')
-    }
+    # Get all stored metrics dynamically
+    metrics = dict(best_trial.user_attrs)
+    # Add the objective value
+    metrics['return_on_risk_percent'] = best_trial.value
     
     # Create a mock detailed_results for compatibility
     detailed_results = {'metrics': metrics}
     
     print(f"\n📈 DETAILED PERFORMANCE METRICS:")
-    print(f"   Total Trades: {metrics.get('total_trades', 'N/A')}")
-    
-    if metrics.get('win_rate') is not None:
-        print(f"   Win Rate: {metrics['win_rate']:.2f}%")
-    
-    if metrics.get('expectancy') is not None:
-        if metrics['expectancy'] == float('inf'):
-            print(f"   Expectancy: ∞ (no losing trades)")
-        else:
-            print(f"   Expectancy: ${metrics['expectancy']:.2f} per trade")
-    
-    if metrics.get('avg_risk_per_trade') is not None:
-        print(f"   Average Risk per Trade: ${metrics['avg_risk_per_trade']:.2f}")
-    
-    if metrics.get('return_on_risk_percent') is not None:
-        if metrics['return_on_risk_percent'] == float('inf'):
-            print(f"   Return on Risk: ∞%")
-        else:
-            print(f"   Return on Risk: {metrics['return_on_risk_percent']:.2f}%")
-    
-    if metrics.get('sharpe_ratio') is not None:
-        print(f"   Sharpe Ratio: {metrics['sharpe_ratio']:.2f}")
+    for metric_name, metric_value in metrics.items():
+        if metric_name != 'error':  # Skip error messages
+            formatted_name = metric_name.replace('_', ' ').title()
+            # Format the value appropriately
+            if metric_value == float('inf'):
+                print(f"   {formatted_name}: ∞")
+            elif metric_value == float('-inf'):
+                print(f"   {formatted_name}: -∞")
+            elif isinstance(metric_value, float):
+                # Special formatting for percentages and dollar amounts
+                if 'percent' in metric_name or 'rate' in metric_name:
+                    print(f"   {formatted_name}: {metric_value:.2f}%")
+                elif 'trade' in metric_name and 'avg' in metric_name:
+                    print(f"   {formatted_name}: ${metric_value:.2f}")
+                elif metric_name == 'expectancy':
+                    print(f"   {formatted_name}: ${metric_value:.2f} per trade")
+                else:
+                    print(f"   {formatted_name}: {metric_value:.2f}")
+            else:
+                print(f"   {formatted_name}: {metric_value}")
     
     return best_params, detailed_results
 
