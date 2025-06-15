@@ -18,9 +18,9 @@ from main import (
 )
 
 # Configuration flags
-ENABLE_PERSISTENCE = False  # Set to True to accumulate trials across runs
+ENABLE_PERSISTENCE = True  # Set to True to accumulate trials across runs
 OPTIMIZATION_SEED = 28     # Set to a number for reproducible results, or None for random
-N_TRIALS = 12  # Adjust based on your computational budget
+N_TRIALS = 3  # Adjust based on your computational budget
 
 # Pruning configuration
 MIN_TRADE_THRESHOLD = 1     # Minimum trades required for valid trial
@@ -218,12 +218,13 @@ def run_optimization(n_trials=100, study_name="vwap_bounce_optimization", max_at
         try:
             import joblib
             study = joblib.load(study_file)
-            print(f"📂 Loaded existing study with {len(study.trials)} trials")
+            completed_in_study = len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE])
+            print(f"📂 Loaded existing study with {completed_in_study} valid trials")
             
             # Validate the loaded study
             validate_loaded_study(study)
             
-            print(f"🔄 Will add {n_trials} more trials (total will be {len(study.trials) + n_trials})")
+            print(f"🔄 Will add {n_trials} more valid trials (total valid will be {completed_in_study + n_trials})")
         except Exception as e:
             print(f"⚠️ Error loading study file: {e}")
             print("🆕 Creating fresh study instead")
@@ -249,6 +250,9 @@ def run_optimization(n_trials=100, study_name="vwap_bounce_optimization", max_at
     # Determine attempt limit
     attempt_limit = max_attempts or MAX_ATTEMPT_LIMIT
     
+    # Capture baseline completed trials (for persistence support)
+    baseline_completed = len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE])
+    
     # Run optimization - try to get n_trials completed, but don't exceed attempt_limit
     attempts_made = 0
     target_reached = False
@@ -257,7 +261,7 @@ def run_optimization(n_trials=100, study_name="vwap_bounce_optimization", max_at
         # Check current progress
         completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
         
-        if len(completed_trials) >= n_trials:
+        if len(completed_trials) - baseline_completed >= n_trials:
             target_reached = True
             break
         
@@ -269,15 +273,16 @@ def run_optimization(n_trials=100, study_name="vwap_bounce_optimization", max_at
         # Show progress
         completed_count = len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE])
         pruned_count = len([t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED])
-        print(f"Progress: {completed_count}/{n_trials} completed, {pruned_count} pruned, {attempts_made}/{attempt_limit} attempts")
+        new_completed = completed_count - baseline_completed
+        print(f"Progress: {new_completed}/{n_trials} new completed, {pruned_count} total pruned, {attempts_made}/{attempt_limit} attempts")
     
     # Final results
     completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
     pruned_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED]
     
-    print(f"\n✅ Completed trials: {len(completed_trials)}")
-    print(f"✂️ Pruned trials: {len(pruned_trials)}")
-    print(f"🔄 Total attempts made: {attempts_made}")
+    print(f"\n✅ Total completed trials in study: {len(completed_trials)}")
+    print(f"✂️ Total pruned trials in study: {len(pruned_trials)}")
+    print(f"🔄 Total attempts made in this run: {attempts_made}")
     
     if target_reached:
         print(f"🎯 Successfully reached target of {n_trials} completed trials!")
