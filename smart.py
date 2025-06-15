@@ -20,7 +20,11 @@ from main import (
 # Configuration flags
 ENABLE_PERSISTENCE = False  # Set to True to accumulate trials across runs
 OPTIMIZATION_SEED = 28     # Set to a number for reproducible results, or None for random
-N_TRIALS = 6  # Adjust based on your computational budget
+N_TRIALS = 12  # Adjust based on your computational budget
+
+# Pruning configuration
+MIN_TRADE_THRESHOLD = 1     # Minimum trades required for valid trial
+MAX_ATTEMPT_LIMIT = 100      # Maximum total attempts (including pruned trials)
 
 # Entry windows mapping - used throughout the optimization
 ENTRY_WINDOWS = {
@@ -148,12 +152,21 @@ def objective(trial):
         
         # Extract metrics
         metrics = backtest_results.get('metrics', {})
-        return_on_risk = metrics.get('return_on_risk_percent')
+        
+        # Pruning logic - Check minimum trade requirement
+        total_trades = metrics.get('total_trades', 0)
+        trial.set_user_attr('total_trades', total_trades)  # Store before potential pruning
+        
+        if total_trades < MIN_TRADE_THRESHOLD:
+            trial.set_user_attr('pruned_reason', 'insufficient_trades')
+            raise optuna.TrialPruned(f"Insufficient trades: {total_trades} < {MIN_TRADE_THRESHOLD}")
         
         # Store ALL metrics as user attributes dynamically
         for metric_name, metric_value in metrics.items():
             if metric_value is not None:
                 trial.set_user_attr(metric_name, metric_value)
+        
+        return_on_risk = metrics.get('return_on_risk_percent')
         
         # Handle edge cases
         if return_on_risk is None:
@@ -168,6 +181,9 @@ def objective(trial):
         else:
             return return_on_risk
             
+    except optuna.TrialPruned:
+        # Re-raise pruned trials (don't catch them)
+        raise
     except Exception as e:
         print(f"Error in trial: {str(e)}")
         # Store error info
@@ -175,7 +191,7 @@ def objective(trial):
         # Return large negative value for failed trials
         return -1000.0
 
-def run_optimization(n_trials=100, study_name="vwap_bounce_optimization"):
+def run_optimization(n_trials=100, study_name="vwap_bounce_optimization", max_attempts=None):
     """
     Run the Optuna optimization study.
     
@@ -188,7 +204,9 @@ def run_optimization(n_trials=100, study_name="vwap_bounce_optimization"):
     """
     print(f"🚀 Starting VWAP Bounce Strategy Optimization")
     print(f"📊 Target: Maximize Average Return on Risk")
-    print(f"🔄 Trials: {n_trials}")
+    print(f"🔄 Target completed trials: {n_trials}")
+    print(f"🚫 Maximum total attempts: {max_attempts or MAX_ATTEMPT_LIMIT}")
+    print(f"📊 Minimum trades per trial: {MIN_TRADE_THRESHOLD}")
     print(f"📈 Parameters: 9 dimensions")
     print("-" * 50)
     
@@ -228,8 +246,44 @@ def run_optimization(n_trials=100, study_name="vwap_bounce_optimization"):
             sampler=create_sampler()
         )
     
-    # Run optimization
-    study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
+    # Determine attempt limit
+    attempt_limit = max_attempts or MAX_ATTEMPT_LIMIT
+    
+    # Run optimization - try to get n_trials completed, but don't exceed attempt_limit
+    attempts_made = 0
+    target_reached = False
+    
+    while attempts_made < attempt_limit:
+        # Check current progress
+        completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+        
+        if len(completed_trials) >= n_trials:
+            target_reached = True
+            break
+        
+        # Run one more trial
+        remaining_attempts = attempt_limit - attempts_made
+        study.optimize(objective, n_trials=1, show_progress_bar=False)
+        attempts_made += 1
+        
+        # Show progress
+        completed_count = len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE])
+        pruned_count = len([t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED])
+        print(f"Progress: {completed_count}/{n_trials} completed, {pruned_count} pruned, {attempts_made}/{attempt_limit} attempts")
+    
+    # Final results
+    completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
+    pruned_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED]
+    
+    print(f"\n✅ Completed trials: {len(completed_trials)}")
+    print(f"✂️ Pruned trials: {len(pruned_trials)}")
+    print(f"🔄 Total attempts made: {attempts_made}")
+    
+    if target_reached:
+        print(f"🎯 Successfully reached target of {n_trials} completed trials!")
+    else:
+        print(f"⚠️ Only found {len(completed_trials)} valid trials out of {attempts_made} attempts")
+        print(f"💡 Consider lowering MIN_TRADE_THRESHOLD or expanding parameter ranges")
     
     return study
 
@@ -370,7 +424,7 @@ if __name__ == "__main__":
     print("=" * 50)
     
     # Run optimization
-    study = run_optimization(n_trials=N_TRIALS)
+    study = run_optimization(n_trials=N_TRIALS, max_attempts=MAX_ATTEMPT_LIMIT)
     
     # Print results
     print_optimization_results(study)
