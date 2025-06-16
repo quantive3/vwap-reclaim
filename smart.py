@@ -18,13 +18,13 @@ from main import (
 )
 
 # Configuration flags
-ENABLE_PERSISTENCE = True  # Set to True to accumulate trials across runs
-OPTIMIZATION_SEED = 28     # Set to a number for reproducible results, or None for random
-N_TRIALS = 3  # Adjust based on your computational budget
+ENABLE_PERSISTENCE = False  # Set to True to accumulate trials across runs
+OPTIMIZATION_SEED = 42     # Set to a number for reproducible results, or None for random
+N_TRIALS = 10  # Adjust based on your computational budget
 
 # Pruning configuration
-MIN_TRADE_THRESHOLD = 1     # Minimum trades required for valid trial
-MAX_ATTEMPT_LIMIT = 100      # Maximum total attempts (including pruned trials)
+MIN_TRADE_THRESHOLD = 5     # Minimum trades required for valid trial
+MAX_ATTEMPT_LIMIT = 50      # Maximum total attempts (including pruned trials)
 
 # Entry windows mapping - used throughout the optimization
 ENTRY_WINDOWS = {
