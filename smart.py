@@ -20,7 +20,7 @@ from main import (
 # Configuration flags
 ENABLE_PERSISTENCE = False  # Set to True to accumulate trials across runs
 OPTIMIZATION_SEED = 42     # Set to a number for reproducible results, or None for random
-N_TRIALS = 10  # Adjust based on your computational budget
+N_TRIALS = 5  # Adjust based on your computational budget
 
 # Pruning configuration
 MIN_TRADE_THRESHOLD = 5     # Minimum trades required for valid trial
@@ -43,9 +43,16 @@ def create_sampler():
         optuna.samplers.BaseSampler: Configured sampler
     """
     if OPTIMIZATION_SEED is not None:
-        return optuna.samplers.TPESampler(seed=OPTIMIZATION_SEED)
+        return optuna.samplers.TPESampler(
+            seed=OPTIMIZATION_SEED,
+            n_startup_trials=10,
+            n_ei_candidates=24
+        )
     else:
-        return optuna.samplers.TPESampler()  # No seed = random
+        return optuna.samplers.TPESampler(
+            n_startup_trials=10,
+            n_ei_candidates=24
+        )  # No seed = random
 
 def validate_loaded_study(study):
     """
