@@ -22,6 +22,10 @@ ENABLE_PERSISTENCE = False  # Set to True to accumulate trials across runs
 OPTIMIZATION_SEED = 42     # Set to a number for reproducible results, or None for random
 N_TRIALS = 5  # Adjust based on your computational budget
 
+# TPE Sampler configuration
+N_STARTUP_TRIALS = 10      # Number of random trials before TPE optimization starts
+N_EI_CANDIDATES = 24       # Number of candidates evaluated per TPE trial
+
 # Pruning configuration
 MIN_TRADE_THRESHOLD = 5     # Minimum trades required for valid trial
 MAX_ATTEMPT_LIMIT = 50      # Maximum total attempts (including pruned trials)
@@ -45,13 +49,13 @@ def create_sampler():
     if OPTIMIZATION_SEED is not None:
         return optuna.samplers.TPESampler(
             seed=OPTIMIZATION_SEED,
-            n_startup_trials=10,
-            n_ei_candidates=24
+            n_startup_trials=N_STARTUP_TRIALS,
+            n_ei_candidates=N_EI_CANDIDATES
         )
     else:
         return optuna.samplers.TPESampler(
-            n_startup_trials=10,
-            n_ei_candidates=24
+            n_startup_trials=N_STARTUP_TRIALS,
+            n_ei_candidates=N_EI_CANDIDATES
         )  # No seed = random
 
 def validate_loaded_study(study):
