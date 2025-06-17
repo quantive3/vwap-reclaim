@@ -17,8 +17,11 @@ from main import (
     CACHE_DIR
 )
 
+# Track all param‐combos we've already tried
+seen = set()
+
 # Configuration flags
-ENABLE_PERSISTENCE = False  # Set to True to accumulate trials across runs
+ENABLE_PERSISTENCE = True  # Set to True to accumulate trials across runs
 OPTIMIZATION_SEED = 42     # Set to a number for reproducible results, or None for random
 N_TRIALS = 5  # Adjust based on your computational budget
 
@@ -142,9 +145,17 @@ def objective(trial):
     Returns:
         float: Average return on risk percentage (to be maximized)
     """
+    global seen
     try:
         # Create optimized parameters for this trial
         params = create_optimized_params(trial)
+        
+        # Skip if this combo was already tried
+        key = tuple(sorted(params.items()))
+        if key in seen:
+            trial.set_user_attr('duplicate', True)
+            raise optuna.TrialPruned("duplicate parameter combo")
+        seen.add(key)
         
         # Initialize issue tracker for this trial
         issue_tracker = initialize_issue_tracker(params)
@@ -257,6 +268,10 @@ def run_optimization(n_trials=100, study_name="vwap_bounce_optimization", max_at
             study_name=study_name,
             sampler=create_sampler()
         )
+    
+    # Track all past parameter combinations
+    global seen
+    seen = { tuple(sorted(t.params.items())) for t in study.trials }
     
     # Determine attempt limit
     attempt_limit = max_attempts or MAX_ATTEMPT_LIMIT
