@@ -21,7 +21,7 @@ from main import (
 seen = set()
 
 # Configuration flags
-ENABLE_PERSISTENCE = True  # Set to True to accumulate trials across runs
+ENABLE_PERSISTENCE = False  # Set to True to accumulate trials across runs
 OPTIMIZATION_SEED = 42     # Set to a number for reproducible results, or None for random
 N_TRIALS = 5  # Adjust based on your computational budget
 
@@ -42,6 +42,20 @@ ENTRY_WINDOWS = {
     4: (time(9, 30), time(15, 45))    # 9:30 to 15:45
 }
 
+from optuna.samplers import TPESampler
+from optuna.trial import TrialState
+
+class ValidCountTPESampler(TPESampler):
+    def __init__(self, n_valid_startup_trials, **kwargs):
+        # Force parent's n_startup_trials to 0; we'll control startup ourselves
+        super().__init__(n_startup_trials=0, **kwargs)
+        self._n_valid_startup = n_valid_startup_trials
+
+    def _is_startup(self, study):
+        # Count only COMPLETE trials
+        valid = sum(1 for t in study.trials if t.state is TrialState.COMPLETE)
+        return valid < self._n_valid_startup
+
 def create_sampler():
     """
     Create Optuna sampler based on configuration.
@@ -49,17 +63,14 @@ def create_sampler():
     Returns:
         optuna.samplers.BaseSampler: Configured sampler
     """
-    if OPTIMIZATION_SEED is not None:
-        return optuna.samplers.TPESampler(
-            seed=OPTIMIZATION_SEED,
-            n_startup_trials=N_STARTUP_TRIALS,
-            n_ei_candidates=N_EI_CANDIDATES
-        )
-    else:
-        return optuna.samplers.TPESampler(
-            n_startup_trials=N_STARTUP_TRIALS,
-            n_ei_candidates=N_EI_CANDIDATES
-        )  # No seed = random
+    sampler_kwargs = dict(
+        seed=OPTIMIZATION_SEED,
+        n_ei_candidates=N_EI_CANDIDATES
+    )
+    return ValidCountTPESampler(
+        n_valid_startup_trials=N_STARTUP_TRIALS,
+        **sampler_kwargs
+    )
 
 def validate_loaded_study(study):
     """
