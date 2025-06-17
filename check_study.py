@@ -1,4 +1,5 @@
 import joblib
+from smart import ValidCountTPESampler
 
 # Load the study file
 study = joblib.load('vwap_optimization_study.pkl')
