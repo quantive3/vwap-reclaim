@@ -6,6 +6,27 @@ from smart import ValidCountTPESampler
 # Load the study file
 study = joblib.load('vwap_optimization_study.pkl')
 
+from collections import defaultdict
+from optuna.trial import TrialState
+
+# Group only completed trials by their sorted param tuples
+param_groups = defaultdict(list)
+for trial in study.trials:
+    if trial.state != TrialState.COMPLETE:
+        continue
+    key = tuple(sorted(trial.params.items()))
+    param_groups[key].append(trial.number)
+
+# Find any parameter tuples that appear more than once
+dupes = {params: nums for params, nums in param_groups.items() if len(nums) > 1}
+
+if dupes:
+    print("⚠️ Duplicate parameter combinations detected among COMPLETED trials:")
+    for params, nums in dupes.items():
+        print(f"  Trials {nums}: {dict(params)}")
+else:
+    print("✅ No duplicate parameter combos found among completed trials.")
+
 print(f"Study has {len(study.trials)} trials")
 print("\nChecking user attributes for each trial:")
 print("-" * 50)
