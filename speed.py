@@ -84,7 +84,7 @@ def initialize_parameters():
         'slippage_percent': 0.01,  # 1% slippage
         
         # Debug settings
-        'debug_mode': False,  # Enable/disable debug outputs
+        'debug_mode': True,  # Enable/disable debug outputs
         
         # Silent mode for grid searches
         'silent_mode': False,  # Enable/disable all non-debug print outputs
@@ -1292,17 +1292,18 @@ def load_option_data(option_ticker, date, cache_dir, df_rth_filled, api_key, par
         df_option_aligned['seconds_since_update'] = pd.Series(0.0, index=df_option_aligned.index, dtype='float64')
         
         # Calculate staleness (seconds since last actual data point)
-        last_actual_ts = None
-        for idx_opt, row_opt in df_option_aligned.iterrows():
-            if row_opt['is_actual_data']:
-                last_actual_ts = row_opt['ts_raw']
-                # No need to set 0.0 since already initialized
-            elif last_actual_ts is not None:
-                seconds_diff = (row_opt['ts_raw'] - last_actual_ts).total_seconds()
-                df_option_aligned.at[idx_opt, 'seconds_since_update'] = seconds_diff
-            else:
-                # Edge case: No actual data points before this timestamp
-                df_option_aligned.at[idx_opt, 'seconds_since_update'] = float('inf')  # Mark as infinitely stale
+                # --- Vectorized staleness calculation ---
+        # 1. Build a Series of actual timestamps (NaT where False)
+        actual_ts = df_option_aligned['ts_raw'].where(df_option_aligned['is_actual_data'])
+
+        # 2. Forward-fill to carry the last actual timestamp to ensuing rows
+        last_actual = actual_ts.ffill()
+
+        # 3. Compute time differences in seconds
+        staleness = (df_option_aligned['ts_raw'] - last_actual).dt.total_seconds()
+
+        # 4. Fill NaN (before first actual) with infinity
+        df_option_aligned['seconds_since_update'] = staleness.fillna(float('inf'))
         
         # Define a threshold for allowable mismatches
         mismatch_threshold = params['timestamp_mismatch_threshold']
