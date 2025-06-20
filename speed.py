@@ -38,18 +38,18 @@ def initialize_parameters():
         'end_date': "2023-01-05",
         
         # Strategy parameters
-        'stretch_threshold': 0.002,  # 0.3%
-        'reclaim_threshold': 0.0016,  # 0.2% - should always be less than stretch threshold
-        'cooldown_period_seconds': 60,  # Cooldown period in seconds
+        'stretch_threshold': 0.004,  # 0.3%
+        'reclaim_threshold': 0.0032,  # 0.2% - should always be less than stretch threshold
+        'cooldown_period_seconds': 90,  # Cooldown period in seconds
         
         # Time windows
         'entry_start_time': time(9, 30),
         'entry_end_time': time(15, 45),
         
         # Exit conditions
-        'take_profit_percent': 100,     # Take profit at 25% gain
+        'take_profit_percent': 25,     # Take profit at 25% gain
         'stop_loss_percent': -25,      # Stop loss at 50% loss
-        'max_trade_duration_seconds': 600,  # Exit after 300 seconds (5 minutes)
+        'max_trade_duration_seconds': 180,  # Exit after 300 seconds (5 minutes)
         'end_of_day_exit_time': time(15, 54),  # trade exit cutoff
         'emergency_exit_time': time(15, 55),   # absolute failsafe exit (overrides all other logic)
         
@@ -1325,14 +1325,15 @@ def load_option_data(option_ticker, date, cache_dir, df_rth_filled, api_key, par
         def hash_timestamps(df):
             return hashlib.md5("".join(df["ts_raw"].astype(str)).encode()).hexdigest()
 
-        spy_hash = hash_timestamps(df_rth_filled)
-        opt_hash = hash_timestamps(df_option_aligned)
-        hash_match = spy_hash == opt_hash
-        
-        # Track hash mismatches - this happens regardless of debug mode
-        if not hash_match:
-            hash_mismatch_msg = f"Hash mismatch between SPY and option data"
-            track_issue("data_integrity", "hash_mismatches", hash_mismatch_msg, date=date)
+        if params['debug_mode']:
+            spy_hash = hash_timestamps(df_rth_filled)
+            opt_hash = hash_timestamps(df_option_aligned)
+            hash_match = spy_hash == opt_hash
+
+            # Track hash mismatches in debug mode
+            if not hash_match:
+                hash_mismatch_msg = f"Hash mismatch between SPY and option data"
+                track_issue("data_integrity", "hash_mismatches", hash_mismatch_msg, date=date)
         
         # Only print the debug information if debug mode is on
         if params['debug_mode']:
