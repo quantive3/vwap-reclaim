@@ -34,22 +34,22 @@ def initialize_parameters():
     """
     return {
         # Backtest period
-        'start_date': "2023-01-03",
-        'end_date': "2023-01-05",
+        'start_date': "2023-01-01",
+        'end_date': "2024-05-31",
         
         # Strategy parameters
-        'stretch_threshold': 0.004,  # 0.3%
-        'reclaim_threshold': 0.0032,  # 0.2% - should always be less than stretch threshold
+        'stretch_threshold': 0.001,  # 0.3%
+        'reclaim_threshold': 0.0008,  # 0.2% - should always be less than stretch threshold
         'cooldown_period_seconds': 90,  # Cooldown period in seconds
         
         # Time windows
         'entry_start_time': time(9, 30),
-        'entry_end_time': time(15, 45),
+        'entry_end_time': time(10, 30),
         
         # Exit conditions
-        'take_profit_percent': 25,     # Take profit at 25% gain
-        'stop_loss_percent': -25,      # Stop loss at 50% loss
-        'max_trade_duration_seconds': 180,  # Exit after 300 seconds (5 minutes)
+        'take_profit_percent': 60,     # Take profit at 25% gain
+        'stop_loss_percent': -70,      # Stop loss at 50% loss
+        'max_trade_duration_seconds': 120,  # Exit after 300 seconds (5 minutes)
         'end_of_day_exit_time': time(15, 54),  # trade exit cutoff
         'emergency_exit_time': time(15, 55),   # absolute failsafe exit (overrides all other logic)
         
@@ -62,8 +62,8 @@ def initialize_parameters():
         # Instrument selection
         'ticker': 'SPY',
         'require_same_day_expiry': True,  # Whether to strictly require same-day expiry options
-        'strikes_depth': 1,  # Number of strikes from ATM to target (1 = closest, 2 = second closest, etc.). Always use 1 or greater.
-        'option_selection_mode': 'itm',  # Options: 'itm', 'otm', or 'atm' - determines whether to select in-the-money, out-of-money, or at-the-money options
+        'strikes_depth': 3,  # Number of strikes from ATM to target (1 = closest, 2 = second closest, etc.). Always use 1 or greater.
+        'option_selection_mode': 'otm',  # Options: 'itm', 'otm', or 'atm' - determines whether to select in-the-money, out-of-money, or at-the-money options
         
         # Position sizing
         'contracts_per_trade': 1,  # Number of contracts to trade per signal (for P&L calculations)
@@ -84,10 +84,11 @@ def initialize_parameters():
         'slippage_percent': 0.01,  # 1% slippage
         
         # Debug settings
-        'debug_mode': True,  # Enable/disable debug outputs
+        'debug_mode': False,  # Enable/disable debug outputs
         
         # Silent mode for grid searches
         'silent_mode': False,  # Enable/disable all non-debug print outputs
+        'enable_profiling': False,  # Enable/disable cProfile profiling
     }
 
 def initialize_issue_tracker(params):
@@ -2107,16 +2108,18 @@ if __name__ == "__main__":
     data_loader = DataLoader(API_KEY, CACHE_DIR, PARAMS, debug_mode=PARAMS['debug_mode'], silent_mode=PARAMS.get('silent_mode', False))
     
     # === PROFILED BACKTEST ===
-    profiler = cProfile.Profile()
-    profiler.enable()
+    if PARAMS.get('enable_profiling', False):
+        profiler = cProfile.Profile()
+        profiler.enable()
 
     backtest_results = run_backtest(PARAMS, data_loader, issue_tracker)
 
-    profiler.disable()
-    profiler.dump_stats('backtest.prof')
-    
-    stats = pstats.Stats('backtest.prof')
-    stats.strip_dirs().sort_stats('cumtime').print_stats(20)
+    if PARAMS.get('enable_profiling', False):
+        profiler.disable()
+        profiler.dump_stats('backtest.prof')
+        
+        stats = pstats.Stats('backtest.prof')
+        stats.strip_dirs().sort_stats('cumtime').print_stats(20)
 
     # Extract results
     total_entry_intent_signals = backtest_results['total_entry_intent_signals']
