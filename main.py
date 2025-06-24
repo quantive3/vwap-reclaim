@@ -21,6 +21,8 @@ import requests
 from datetime import time
 import hashlib
 import numpy as np
+import cProfile
+import pstats
 
 def initialize_parameters():
     """
@@ -33,21 +35,21 @@ def initialize_parameters():
     return {
         # Backtest period
         'start_date': "2023-01-01",
-        'end_date': "2023-01-31",
+        'end_date': "2024-05-31",
         
         # Strategy parameters
-        'stretch_threshold': 0.003,  # 0.3%
-        'reclaim_threshold': 0.002,  # 0.2% - should always be less than stretch threshold
-        'cooldown_period_seconds': 60,  # Cooldown period in seconds
+        'stretch_threshold': 0.001,  # 0.3%
+        'reclaim_threshold': 0.0008,  # 0.2% - should always be less than stretch threshold
+        'cooldown_period_seconds': 90,  # Cooldown period in seconds
         
         # Time windows
         'entry_start_time': time(9, 30),
-        'entry_end_time': time(16, 0),
+        'entry_end_time': time(10, 30),
         
         # Exit conditions
-        'take_profit_percent': 25,     # Take profit at 25% gain
-        'stop_loss_percent': -50,      # Stop loss at 50% loss
-        'max_trade_duration_seconds': 300,  # Exit after 300 seconds (5 minutes)
+        'take_profit_percent': 60,     # Take profit at 25% gain
+        'stop_loss_percent': -70,      # Stop loss at 50% loss
+        'max_trade_duration_seconds': 120,  # Exit after 300 seconds (5 minutes)
         'end_of_day_exit_time': time(15, 54),  # trade exit cutoff
         'emergency_exit_time': time(15, 55),   # absolute failsafe exit (overrides all other logic)
         
@@ -60,8 +62,8 @@ def initialize_parameters():
         # Instrument selection
         'ticker': 'SPY',
         'require_same_day_expiry': True,  # Whether to strictly require same-day expiry options
-        'strikes_depth': 1,  # Number of strikes from ATM to target (1 = closest, 2 = second closest, etc.). Always use 1 or greater.
-        'option_selection_mode': 'itm',  # Options: 'itm', 'otm', or 'atm' - determines whether to select in-the-money, out-of-money, or at-the-money options
+        'strikes_depth': 3,  # Number of strikes from ATM to target (1 = closest, 2 = second closest, etc.). Always use 1 or greater.
+        'option_selection_mode': 'otm',  # Options: 'itm', 'otm', or 'atm' - determines whether to select in-the-money, out-of-money, or at-the-money options
         
         # Position sizing
         'contracts_per_trade': 1,  # Number of contracts to trade per signal (for P&L calculations)
@@ -86,6 +88,7 @@ def initialize_parameters():
         
         # Silent mode for grid searches
         'silent_mode': False,  # Enable/disable all non-debug print outputs
+        'enable_profiling': False,  # Enable/disable cProfile profiling
     }
 
 def initialize_issue_tracker(params):
@@ -1290,17 +1293,18 @@ def load_option_data(option_ticker, date, cache_dir, df_rth_filled, api_key, par
         df_option_aligned['seconds_since_update'] = pd.Series(0.0, index=df_option_aligned.index, dtype='float64')
         
         # Calculate staleness (seconds since last actual data point)
-        last_actual_ts = None
-        for idx_opt, row_opt in df_option_aligned.iterrows():
-            if row_opt['is_actual_data']:
-                last_actual_ts = row_opt['ts_raw']
-                # No need to set 0.0 since already initialized
-            elif last_actual_ts is not None:
-                seconds_diff = (row_opt['ts_raw'] - last_actual_ts).total_seconds()
-                df_option_aligned.at[idx_opt, 'seconds_since_update'] = seconds_diff
-            else:
-                # Edge case: No actual data points before this timestamp
-                df_option_aligned.at[idx_opt, 'seconds_since_update'] = float('inf')  # Mark as infinitely stale
+                # --- Vectorized staleness calculation ---
+        # 1. Build a Series of actual timestamps (NaT where False)
+        actual_ts = df_option_aligned['ts_raw'].where(df_option_aligned['is_actual_data'])
+
+        # 2. Forward-fill to carry the last actual timestamp to ensuing rows
+        last_actual = actual_ts.ffill()
+
+        # 3. Compute time differences in seconds
+        staleness = (df_option_aligned['ts_raw'] - last_actual).dt.total_seconds()
+
+        # 4. Fill NaN (before first actual) with infinity
+        df_option_aligned['seconds_since_update'] = staleness.fillna(float('inf'))
         
         # Define a threshold for allowable mismatches
         mismatch_threshold = params['timestamp_mismatch_threshold']
@@ -1322,14 +1326,15 @@ def load_option_data(option_ticker, date, cache_dir, df_rth_filled, api_key, par
         def hash_timestamps(df):
             return hashlib.md5("".join(df["ts_raw"].astype(str)).encode()).hexdigest()
 
-        spy_hash = hash_timestamps(df_rth_filled)
-        opt_hash = hash_timestamps(df_option_aligned)
-        hash_match = spy_hash == opt_hash
-        
-        # Track hash mismatches - this happens regardless of debug mode
-        if not hash_match:
-            hash_mismatch_msg = f"Hash mismatch between SPY and option data"
-            track_issue("data_integrity", "hash_mismatches", hash_mismatch_msg, date=date)
+        if params['debug_mode']:
+            spy_hash = hash_timestamps(df_rth_filled)
+            opt_hash = hash_timestamps(df_option_aligned)
+            hash_match = spy_hash == opt_hash
+
+            # Track hash mismatches in debug mode
+            if not hash_match:
+                hash_mismatch_msg = f"Hash mismatch between SPY and option data"
+                track_issue("data_integrity", "hash_mismatches", hash_mismatch_msg, date=date)
         
         # Only print the debug information if debug mode is on
         if params['debug_mode']:
@@ -2102,8 +2107,19 @@ if __name__ == "__main__":
     # Initialize DataLoader
     data_loader = DataLoader(API_KEY, CACHE_DIR, PARAMS, debug_mode=PARAMS['debug_mode'], silent_mode=PARAMS.get('silent_mode', False))
     
-    # Run the backtest
+    # === PROFILED BACKTEST ===
+    if PARAMS.get('enable_profiling', False):
+        profiler = cProfile.Profile()
+        profiler.enable()
+
     backtest_results = run_backtest(PARAMS, data_loader, issue_tracker)
+
+    if PARAMS.get('enable_profiling', False):
+        profiler.disable()
+        profiler.dump_stats('backtest.prof')
+        
+        stats = pstats.Stats('backtest.prof')
+        stats.strip_dirs().sort_stats('cumtime').print_stats(20)
 
     # Extract results
     total_entry_intent_signals = backtest_results['total_entry_intent_signals']
