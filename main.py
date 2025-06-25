@@ -34,8 +34,8 @@ def initialize_parameters():
     """
     return {
         # Backtest period
-        'start_date': "2023-01-01",
-        'end_date': "2024-05-31",
+        'start_date': "2023-01-04",
+        'end_date': "2023-01-04",
         
         # Strategy parameters
         'stretch_threshold': 0.001,  # 0.3%
@@ -62,7 +62,7 @@ def initialize_parameters():
         # Instrument selection
         'ticker': 'SPY',
         'require_same_day_expiry': True,  # Whether to strictly require same-day expiry options
-        'strikes_depth': 3,  # Number of strikes from ATM to target (1 = closest, 2 = second closest, etc.). Always use 1 or greater.
+        'strikes_depth': 1,  # Number of strikes from ATM to target (1 = closest, 2 = second closest, etc.). Always use 1 or greater.
         'option_selection_mode': 'otm',  # Options: 'itm', 'otm', or 'atm' - determines whether to select in-the-money, out-of-money, or at-the-money options
         
         # Position sizing
@@ -84,7 +84,7 @@ def initialize_parameters():
         'slippage_percent': 0.01,  # 1% slippage
         
         # Debug settings
-        'debug_mode': False,  # Enable/disable debug outputs
+        'debug_mode': True,  # Enable/disable debug outputs
         
         # Silent mode for grid searches
         'silent_mode': False,  # Enable/disable all non-debug print outputs
@@ -2395,6 +2395,9 @@ if __name__ == "__main__":
             # Only include columns that exist
             existing_columns = [col for col in display_columns if col in contracts_df.columns]
             print(contracts_df[existing_columns].head(10))
+            # Also export the sample to CSV for easier review when in debug mode
+            contracts_df[existing_columns].head(20).to_csv("sample_trades.csv", index=False)
+            print("🔄 Sample of trades also written to sample_trades.csv")
 
     # ==================== GENERATE SUMMARY REPORT ====================
     if not PARAMS.get('silent_mode', False):
