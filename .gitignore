@@ -6,3 +6,4 @@ __pycache__/
 random_search_results.csv
 vwap_optimization_study.pkl
 opt_history.png
+sample_trades.csv
