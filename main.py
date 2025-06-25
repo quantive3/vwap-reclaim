@@ -81,7 +81,7 @@ def initialize_parameters():
         'report_stale_prices': True,  # Enable/disable reporting of stale prices
         
         # Slippage settings
-        'slippage_percent': 0.01,  # 1% slippage
+        'slippage_amount': 0.02,   # fixed slippage per share
         
         # Debug settings
         'debug_mode': True,  # Enable/disable debug outputs
@@ -1968,9 +1968,9 @@ def run_backtest(params, data_loader, issue_tracker):
         contracts_df = pd.DataFrame(all_contracts)
         
         # Apply slippage adjustments (same logic as in main script)
-        SLIPPAGE_PERCENT = params['slippage_percent']
-        contracts_df['entry_option_price_slipped'] = contracts_df['entry_option_price'] * (1 + SLIPPAGE_PERCENT)
-        contracts_df['exit_price_slipped'] = contracts_df['exit_price'] * (1 - SLIPPAGE_PERCENT)
+        SLIPPAGE_AMOUNT = params['slippage_amount']
+        contracts_df['entry_option_price_slipped'] = contracts_df['entry_option_price'] + SLIPPAGE_AMOUNT
+        contracts_df['exit_price_slipped'] = contracts_df['exit_price'] - SLIPPAGE_AMOUNT
         
         # Calculate P&L with slippage
         contracts_df['pnl_percent_slipped'] = ((contracts_df['exit_price_slipped'] - contracts_df['entry_option_price_slipped']) / 
@@ -2167,12 +2167,10 @@ if __name__ == "__main__":
         contracts_df = pd.DataFrame(all_contracts)
         
         # === SLIPPAGE ADJUSTMENT (Post-Processing) ===
-        # Apply slippage without modifying original trade decisions
-        SLIPPAGE_PERCENT = PARAMS['slippage_percent']
-        
-        # Create slippage-adjusted entry and exit prices (worse entries, worse exits)
-        contracts_df['entry_option_price_slipped'] = contracts_df['entry_option_price'] * (1 + SLIPPAGE_PERCENT)
-        contracts_df['exit_price_slipped'] = contracts_df['exit_price'] * (1 - SLIPPAGE_PERCENT)
+        # Apply flat slippage without modifying original trade decisions
+        SLIPPAGE_AMOUNT = PARAMS['slippage_amount']
+        contracts_df['entry_option_price_slipped'] = contracts_df['entry_option_price'] + SLIPPAGE_AMOUNT
+        contracts_df['exit_price_slipped'] = contracts_df['exit_price'] - SLIPPAGE_AMOUNT
         
         # Recalculate P&L with slippage
         contracts_df['pnl_percent_slipped'] = ((contracts_df['exit_price_slipped'] - contracts_df['entry_option_price_slipped']) / 
