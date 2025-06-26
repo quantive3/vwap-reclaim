@@ -1,6 +1,6 @@
 # === STEP 1: Local Cache Setup ===
 import os
-from filelock import FileLock
+from filelock import FileLock, Timeout
 
 # Create local cache directories
 CACHE_DIR = "./polygon_cache"  # Local cache directory
@@ -85,7 +85,7 @@ def initialize_parameters():
         'slippage_amount': 0.02,   # fixed slippage per share
         
         # Debug settings
-        'debug_mode': False,  # Enable/disable debug outputs
+        'debug_mode': True,  # Enable/disable debug outputs
         
         # Silent mode for grid searches
         'silent_mode': False,  # Enable/disable all non-debug print outputs
@@ -191,109 +191,116 @@ def load_spy_data(date, cache_dir, api_key, params, debug_mode=False):
     ticker = params['ticker']
     spy_dir = os.path.join(cache_dir, "spy")
     spy_path = os.path.join(spy_dir, f"{ticker}_{date}.pkl")
+    lock_path = spy_path + ".lock"
+    os.makedirs(os.path.dirname(spy_path), exist_ok=True)
     
-    if os.path.exists(spy_path):
-        df_rth_filled = pd.read_pickle(spy_path)
-        if debug_mode:
-            print("📂 SPY data loaded from cache.")
-            # Generate and log hash for SPY data
-            generate_dataframe_hash(df_rth_filled, f"SPY {date}")
-        if len(df_rth_filled) < params['min_spy_data_rows']:
-            short_data_msg = f"SPY data for {date} is unusually short with only {len(df_rth_filled)} rows. This may indicate incomplete data."
-            if not params.get('silent_mode', False):
-                print(f"⚠️ {short_data_msg}")
-            track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
-    else:
-        base_url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/second/{date}/{date}"
-        headers = {"Authorization": f"Bearer {api_key}"}
+    lock = FileLock(lock_path, timeout=30)   # 30 s max wait
+    try:
+        with lock:
+            if not os.path.exists(spy_path):
+                base_url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/second/{date}/{date}"
+                headers = {"Authorization": f"Bearer {api_key}"}
 
-        all_results = []
-        cursor = None
-        while True:
-            url = f"{base_url}?adjusted=true&limit=50000"
-            if cursor:
-                url += f"&cursor={cursor}"
-            response = requests.get(url, headers=headers)
-            if response.status_code != 200:
-                error_msg = f"SPY price request failed: {response.status_code}"
-                track_issue("errors", "api_connection_failures", error_msg, level="error", date=date)
-                raise Exception(error_msg)
+                all_results = []
+                cursor = None
+                while True:
+                    url = f"{base_url}?adjusted=true&limit=50000"
+                    if cursor:
+                        url += f"&cursor={cursor}"
+                    response = requests.get(url, headers=headers)
+                    if response.status_code != 200:
+                        error_msg = f"SPY price request failed: {response.status_code}"
+                        track_issue("errors", "api_connection_failures", error_msg, level="error", date=date)
+                        raise Exception(error_msg)
 
-            json_data = response.json()
-            results = json_data.get("results", [])
-            all_results.extend(results)
+                    json_data = response.json()
+                    results = json_data.get("results", [])
+                    all_results.extend(results)
 
-            if "next_url" in json_data:
-                cursor = json_data["next_url"].split("cursor=")[-1]
-            else:
-                break
+                    if "next_url" in json_data:
+                        cursor = json_data["next_url"].split("cursor=")[-1]
+                    else:
+                        break
 
-        if not all_results:
-            no_data_msg = f"No {ticker} data for {date} — skipping."
-            if not params.get('silent_mode', False):
-                print(f"⚠️ {no_data_msg}")
-            track_issue("warnings", f"no_{ticker}_data", no_data_msg, date=date)
-            return None
+                if not all_results:
+                    no_data_msg = f"No {ticker} data for {date} — skipping."
+                    if not params.get('silent_mode', False):
+                        print(f"⚠️ {no_data_msg}")
+                    track_issue("warnings", f"no_{ticker}_data", no_data_msg, date=date)
+                    return None
 
-        df_raw = pd.DataFrame(all_results)
-        df_raw["timestamp"] = pd.to_datetime(df_raw["t"], unit="ms", utc=True).dt.tz_convert("US/Eastern")
-        df_raw.rename(columns={
-            "o": "open", "h": "high", "l": "low", "c": "close",
-            "v": "volume", "vw": "vw", "n": "trades"
-        }, inplace=True)
-        df_raw = df_raw[["timestamp", "open", "high", "low", "close", "volume", "vw", "trades"]]
+                df_raw = pd.DataFrame(all_results)
+                df_raw["timestamp"] = pd.to_datetime(df_raw["t"], unit="ms", utc=True).dt.tz_convert("US/Eastern")
+                df_raw.rename(columns={
+                    "o": "open", "h": "high", "l": "low", "c": "close",
+                    "v": "volume", "vw": "vw", "n": "trades"
+                }, inplace=True)
+                df_raw = df_raw[["timestamp", "open", "high", "low", "close", "volume", "vw", "trades"]]
 
-        df_rth = df_raw[
-            (df_raw["timestamp"].dt.time >= time(9, 30)) &
-            (df_raw["timestamp"].dt.time <= time(16, 0))
-        ].sort_values("timestamp").reset_index(drop=True)
+                df_rth = df_raw[
+                    (df_raw["timestamp"].dt.time >= time(9, 30)) &
+                    (df_raw["timestamp"].dt.time <= time(16, 0))
+                ].sort_values("timestamp").reset_index(drop=True)
 
-        start_time = pd.Timestamp(f"{date} 09:30:00", tz="US/Eastern")
-        end_time = pd.Timestamp(f"{date} 16:00:00", tz="US/Eastern")
-        full_index = pd.date_range(start=start_time, end=end_time, freq="1s", tz="US/Eastern")
+                start_time = pd.Timestamp(f"{date} 09:30:00", tz="US/Eastern")
+                end_time = pd.Timestamp(f"{date} 16:00:00", tz="US/Eastern")
+                full_index = pd.date_range(start=start_time, end=end_time, freq="1s", tz="US/Eastern")
 
-        df_rth_filled = df_rth.set_index("timestamp").reindex(full_index).ffill().reset_index()
-        df_rth_filled.rename(columns={"index": "timestamp"}, inplace=True)
-        df_rth_filled["ts_raw"] = df_rth_filled["timestamp"]
-        df_rth_filled["timestamp"] = df_rth_filled["timestamp"].dt.strftime("%Y-%m-%d %H:%M:%S %Z")
-        # === Updated VWAP using volume-weighted price (vw) ===
-        df_rth_filled["cum_pv"] = (df_rth_filled["vw"] * df_rth_filled["volume"]).cumsum()
-        df_rth_filled["cum_vol"] = df_rth_filled["volume"].cumsum()
-        df_rth_filled["vwap_running"] = df_rth_filled["cum_pv"] / df_rth_filled["cum_vol"]
+                df_rth_filled = df_rth.set_index("timestamp").reindex(full_index).ffill().reset_index()
+                df_rth_filled.rename(columns={"index": "timestamp"}, inplace=True)
+                df_rth_filled["ts_raw"] = df_rth_filled["timestamp"]
+                df_rth_filled["timestamp"] = df_rth_filled["timestamp"].dt.strftime("%Y-%m-%d %H:%M:%S %Z")
+                # === Updated VWAP using volume-weighted price (vw) ===
+                df_rth_filled["cum_pv"] = (df_rth_filled["vw"] * df_rth_filled["volume"]).cumsum()
+                df_rth_filled["cum_vol"] = df_rth_filled["volume"].cumsum()
+                df_rth_filled["vwap_running"] = df_rth_filled["cum_pv"] / df_rth_filled["cum_vol"]
 
-        if df_rth_filled["vwap_running"].isna().any():
-            error_msg = "NaNs detected in vwap_running — check data or ffill logic"
-            track_issue("errors", "other", error_msg, level="error", date=date)
-            raise ValueError(f"❌ {error_msg}")
+                if df_rth_filled["vwap_running"].isna().any():
+                    error_msg = "NaNs detected in vwap_running — check data or ffill logic"
+                    track_issue("errors", "other", error_msg, level="error", date=date)
+                    raise ValueError(f"❌ {error_msg}")
 
-        if not df_rth_filled["vwap_running"].apply(lambda x: pd.notna(x) and np.isfinite(x)).all():
-            error_msg = "Non-finite values (inf/-inf) in vwap_running"
-            track_issue("errors", "other", error_msg, level="error", date=date)
-            raise ValueError(f"❌ {error_msg}")
+                if not df_rth_filled["vwap_running"].apply(lambda x: pd.notna(x) and np.isfinite(x)).all():
+                    error_msg = "Non-finite values (inf/-inf) in vwap_running"
+                    track_issue("errors", "other", error_msg, level="error", date=date)
+                    raise ValueError(f"❌ {error_msg}")
 
-        # Check for NaNs and non-finite values in critical columns
-        critical_columns = ["open", "high", "low", "close", "volume", "vw"]
-        for column in critical_columns:
-            if df_rth_filled[column].isna().any():
-                error_msg = f"NaNs detected in {column} — check data integrity"
-                track_issue("errors", "other", error_msg, level="error", date=date)
-                raise ValueError(f"❌ {error_msg}")
-            if not df_rth_filled[column].apply(lambda x: pd.notna(x) and np.isfinite(x)).all():
-                error_msg = f"Non-finite values (inf/-inf) in {column} — check data integrity"
-                track_issue("errors", "other", error_msg, level="error", date=date)
-                raise ValueError(f"❌ {error_msg}")
+                # Check for NaNs and non-finite values in critical columns
+                critical_columns = ["open", "high", "low", "close", "volume", "vw"]
+                for column in critical_columns:
+                    if df_rth_filled[column].isna().any():
+                        error_msg = f"NaNs detected in {column} — check data integrity"
+                        track_issue("errors", "other", error_msg, level="error", date=date)
+                        raise ValueError(f"❌ {error_msg}")
+                    if not df_rth_filled[column].apply(lambda x: pd.notna(x) and np.isfinite(x)).all():
+                        error_msg = f"Non-finite values (inf/-inf) in {column} — check data integrity"
+                        track_issue("errors", "other", error_msg, level="error", date=date)
+                        raise ValueError(f"❌ {error_msg}")
 
-        if len(df_rth_filled) < params['min_spy_data_rows']:
-            short_data_msg = f"SPY data for {date} is unusually short with only {len(df_rth_filled)} rows after pulling from API. This may indicate incomplete data."
-            if not params.get('silent_mode', False):
-                print(f"⚠️ {short_data_msg}")
-            track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
+                if len(df_rth_filled) < params['min_spy_data_rows']:
+                    short_data_msg = f"SPY data for {date} is unusually short with only {len(df_rth_filled)} rows after pulling from API. This may indicate incomplete data."
+                    if not params.get('silent_mode', False):
+                        print(f"⚠️ {short_data_msg}")
+                    track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
 
-        df_rth_filled.to_pickle(spy_path)
-        if debug_mode:
-            print("💾 SPY data pulled and cached.")
-            # Generate and log hash for SPY data
-            generate_dataframe_hash(df_rth_filled, f"SPY {date}")
+                df_rth_filled.to_pickle(spy_path)
+                if debug_mode:
+                    print("💾 SPY data pulled and cached.")
+                    # Generate and log hash for SPY data
+                    generate_dataframe_hash(df_rth_filled, f"SPY {date}")
+            # once cached (either just written or already there)
+            df_rth_filled = pd.read_pickle(spy_path)
+            if debug_mode:
+                print("📂 SPY data loaded from cache.")
+                # Generate and log hash for SPY data
+                generate_dataframe_hash(df_rth_filled, f"SPY {date}")
+            if len(df_rth_filled) < params['min_spy_data_rows']:
+                short_data_msg = f"SPY data for {date} is unusually short with only {len(df_rth_filled)} rows. This may indicate incomplete data."
+                if not params.get('silent_mode', False):
+                    print(f"⚠️ {short_data_msg}")
+                track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
+    except Timeout:
+        raise RuntimeError(f"Timeout waiting for lock on {lock_path}")
     
     return df_rth_filled
 
