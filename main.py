@@ -1,5 +1,6 @@
 # === STEP 1: Local Cache Setup ===
 import os
+from filelock import FileLock
 
 # Create local cache directories
 CACHE_DIR = "./polygon_cache"  # Local cache directory
@@ -84,11 +85,11 @@ def initialize_parameters():
         'slippage_amount': 0.02,   # fixed slippage per share
         
         # Debug settings
-        'debug_mode': True,  # Enable/disable debug outputs
+        'debug_mode': False,  # Enable/disable debug outputs
         
         # Silent mode for grid searches
         'silent_mode': False,  # Enable/disable all non-debug print outputs
-        'enable_profiling': False,  # Enable/disable cProfile profiling
+        'enable_profiling': True,  # Enable/disable cProfile profiling
     }
 
 def initialize_issue_tracker(params):
