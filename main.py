@@ -1,6 +1,9 @@
 # === STEP 1: Local Cache Setup ===
 import os
+<<<<<<< HEAD
 from filelock import FileLock, Timeout
+=======
+>>>>>>> parent of bededfe (import filelock lib)
 
 # Create local cache directories
 CACHE_DIR = "./polygon_cache"  # Local cache directory
@@ -89,7 +92,7 @@ def initialize_parameters():
         
         # Silent mode for grid searches
         'silent_mode': False,  # Enable/disable all non-debug print outputs
-        'enable_profiling': True,  # Enable/disable cProfile profiling
+        'enable_profiling': False,  # Enable/disable cProfile profiling
     }
 
 def initialize_issue_tracker(params):
