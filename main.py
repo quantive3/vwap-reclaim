@@ -89,9 +89,11 @@ def initialize_parameters():
         
         # Debug settings
         'debug_mode': True,  # Enable/disable debug outputs
+        'debug_mode': True,  # Enable/disable debug outputs
         
         # Silent mode for grid searches
         'silent_mode': False,  # Enable/disable all non-debug print outputs
+        'enable_profiling': False,  # Enable/disable cProfile profiling
         'enable_profiling': False,  # Enable/disable cProfile profiling
     }
 
