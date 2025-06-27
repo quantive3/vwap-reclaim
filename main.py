@@ -24,6 +24,8 @@ import numpy as np
 import cProfile
 import pstats
 
+from filelock import FileLock
+
 def initialize_parameters():
     """
     Initialize and return the strategy parameters dictionary.
@@ -88,7 +90,7 @@ def initialize_parameters():
         
         # Silent mode for grid searches
         'silent_mode': False,  # Enable/disable all non-debug print outputs
-        'enable_profiling': False,  # Enable/disable cProfile profiling
+        'enable_profiling': True,  # Enable/disable cProfile profiling
     }
 
 def initialize_issue_tracker(params):
@@ -172,6 +174,25 @@ def setup_cache_directories(cache_dir):
         os.makedirs(d, exist_ok=True)
         
     return spy_dir, chain_dir, option_dir
+
+def load_with_cache_lock(cache_path, fetch_func, *args, lock_timeout=60, **kwargs):
+    """
+    Load data from cache_path using a file lock. If cache file doesn't exist,
+    fetch data by calling fetch_func(*args, **kwargs), save to cache_path, and return it.
+    Only one process will fetch and write data at a time.
+    """
+    # Check for existing cache without locking (allow concurrent reads)
+    if os.path.exists(cache_path):
+        return pd.read_pickle(cache_path)
+    lock_path = f"{cache_path}.lock"
+    lock = FileLock(lock_path, timeout=lock_timeout)
+    with lock:
+        # Re-check inside lock in case another process created it
+        if os.path.exists(cache_path):
+            return pd.read_pickle(cache_path)
+        data = fetch_func(*args, **kwargs)
+        data.to_pickle(cache_path)
+        return data
 
 def load_spy_data(date, cache_dir, api_key, params, debug_mode=False):
     """
