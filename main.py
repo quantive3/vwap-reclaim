@@ -313,26 +313,34 @@ def load_spy_data(date, cache_dir, api_key, params, debug_mode=False):
     spy_dir = os.path.join(cache_dir, "spy")
     spy_path = os.path.join(spy_dir, f"{ticker}_{date}.pkl")
     
-    if os.path.exists(spy_path):
-        df_rth_filled = pd.read_pickle(spy_path)
-        if debug_mode:
+    # Track whether the fetch function was called
+    was_fetched = [False]
+    
+    def fetch_wrapper():
+        was_fetched[0] = True
+        return _fetch_spy(date, api_key, params, debug_mode)
+    
+    # Use the file-lock wrapper to handle caching
+    df_rth_filled = load_with_cache_lock(
+        spy_path,
+        fetch_wrapper,
+        lock_timeout=60
+    )
+    
+    # Re-attach debug prints, hash generation, and warnings
+    if debug_mode:
+        if was_fetched[0]:
+            print("💾 SPY data pulled and cached.")
+        else:
             print("📂 SPY data loaded from cache.")
-            # Generate and log hash for SPY data
-            generate_dataframe_hash(df_rth_filled, f"SPY {date}")
-        if len(df_rth_filled) < params['min_spy_data_rows']:
-            short_data_msg = f"SPY data for {date} is unusually short with only {len(df_rth_filled)} rows. This may indicate incomplete data."
-            if not params.get('silent_mode', False):
-                print(f"⚠️ {short_data_msg}")
-            track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
-    else:
-        df_rth_filled = _fetch_spy(date, api_key, params, debug_mode)
-        
-        if df_rth_filled is not None:
-            df_rth_filled.to_pickle(spy_path)
-            if debug_mode:
-                print("💾 SPY data pulled and cached.")
-                # Generate and log hash for SPY data
-                generate_dataframe_hash(df_rth_filled, f"SPY {date}")
+        # Generate and log hash for SPY data
+        generate_dataframe_hash(df_rth_filled, f"SPY {date}")
+    
+    if len(df_rth_filled) < params['min_spy_data_rows']:
+        short_data_msg = f"SPY data for {date} is unusually short with only {len(df_rth_filled)} rows. This may indicate incomplete data."
+        if not params.get('silent_mode', False):
+            print(f"⚠️ {short_data_msg}")
+        track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
     
     return df_rth_filled
 
