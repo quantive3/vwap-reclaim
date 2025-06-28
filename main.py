@@ -362,19 +362,13 @@ def load_chain_data(date, cache_dir, api_key, params, debug_mode=False):
     chain_dir = os.path.join(cache_dir, "chain")
     chain_path = os.path.join(chain_dir, f"{ticker}_chain_{date}.pkl")
     
-    if os.path.exists(chain_path):
-        df_chain = pd.read_pickle(chain_path)
-        if debug_mode:
-            print("📂 Option chain loaded from cache.")
-            # Generate and log hash for option chain data
-            generate_dataframe_hash(df_chain, f"Chain {date}")
-        if len(df_chain) < params['min_option_chain_rows']:
-            short_data_msg = f"Option chain data for {date} is unusually short with only {len(df_chain)} rows. This may indicate incomplete data."
-            if not params.get('silent_mode', False):
-                print(f"⚠️ {short_data_msg}")
-            track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
-    else:
-        def fetch_chain(contract_type):
+    # Track whether the fetch function was called
+    was_fetched = [False]
+    
+    def fetch_chain():
+        was_fetched[0] = True
+        
+        def fetch_contract_type(contract_type):
             url = (
                 f"https://api.polygon.io/v3/reference/options/contracts"
                 f"?underlying_ticker={ticker}"
@@ -396,23 +390,37 @@ def load_chain_data(date, cache_dir, api_key, params, debug_mode=False):
             df["option_type"] = contract_type
             return df
 
-        df_calls = fetch_chain("call")
-        df_puts = fetch_chain("put")
+        df_calls = fetch_contract_type("call")
+        df_puts = fetch_contract_type("put")
         df_chain = pd.concat([df_calls, df_puts], ignore_index=True)
         df_chain["ticker_clean"] = df_chain["ticker"].str.replace("O:", "", regex=False)
 
-        # Check for unusually short data before caching
-        if len(df_chain) < params['min_option_chain_rows']:
-            short_data_msg = f"Option chain data for {date} is unusually short with only {len(df_chain)} rows after pulling from API. This may indicate incomplete data."
-            if not params.get('silent_mode', False):
-                print(f"⚠️ {short_data_msg}")
-            track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
-
-        df_chain.to_pickle(chain_path)
-        if debug_mode:
+        return df_chain
+    
+    # Use the file-lock wrapper to handle caching
+    df_chain = load_with_cache_lock(
+        chain_path,
+        fetch_chain,
+        lock_timeout=60
+    )
+    
+    # Re-attach debug prints, hash generation, and warnings
+    if debug_mode:
+        if was_fetched[0]:
             print("💾 Option chain pulled and cached.")
             # Generate and log hash for option chain data
             generate_dataframe_hash(df_chain, f"Chain {date}")
+        else:
+            print("📂 Option chain loaded from cache.")
+            # Generate and log hash for option chain data
+            generate_dataframe_hash(df_chain, f"Chain {date}")
+    
+    # Check for unusually short data
+    if len(df_chain) < params['min_option_chain_rows']:
+        short_data_msg = f"Option chain data for {date} is unusually short with only {len(df_chain)} rows. This may indicate incomplete data."
+        if not params.get('silent_mode', False):
+            print(f"⚠️ {short_data_msg}")
+        track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
 
     if df_chain.empty:
         no_data_msg = f"No option chain data for {date} — skipping."
