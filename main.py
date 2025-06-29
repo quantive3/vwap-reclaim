@@ -191,7 +191,9 @@ def load_with_cache_lock(cache_path, fetch_func, *args, lock_timeout=60, **kwarg
         if os.path.exists(cache_path):
             return pd.read_pickle(cache_path)
         data = fetch_func(*args, **kwargs)
-        data.to_pickle(cache_path)
+        # Only write to pickle if data is not None and has at least one row
+        if data is not None and len(data) > 0:
+            data.to_pickle(cache_path)
         return data
 
 def _fetch_spy(date, api_key, params, debug_mode=False):
@@ -326,6 +328,10 @@ def load_spy_data(date, cache_dir, api_key, params, debug_mode=False):
         fetch_wrapper,
         lock_timeout=60
     )
+    
+    # Check if df_rth_filled is None before proceeding
+    if df_rth_filled is None:
+        return None
     
     # Re-attach debug prints, hash generation, and warnings
     if debug_mode:
