@@ -82,17 +82,12 @@ def validate_loaded_study(study):
     Raises:
         ValueError: If study has critical issues
     """
-    if len(study.trials) == 0:
-        raise ValueError("⛔ Loaded study has no trials - file may be corrupted")
-    
-    completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
-    if len(completed_trials) == 0:
-        raise ValueError("⛔ Loaded study has no completed trials - all failed")
-    
     if study.direction.name != 'MAXIMIZE':
         raise ValueError("⛔ Loaded study direction mismatch - expected MAXIMIZE")
     
+    completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
     print(f"✅ Study validation passed - {len(completed_trials)} valid trials")
+    return len(completed_trials)
 
 def create_optimized_params(trial):
     """
@@ -243,42 +238,51 @@ def run_optimization(n_trials=100, study_name="vwap_bounce_optimization", max_at
     print(f"📈 Parameters: 9 dimensions")
     print("-" * 50)
     
-    # Check for existing study file
-    study_file = 'vwap_optimization_study.pkl'
+    # SQLite storage path and database file path
+    db_file = "vwap.db"
+    storage_path = f"sqlite:///{db_file}"
     
-    if ENABLE_PERSISTENCE and os.path.exists(study_file):
-        # Load existing study
-        try:
-            import joblib
-            study = joblib.load(study_file)
-            completed_in_study = len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE])
-            print(f"📂 Loaded existing study with {completed_in_study} valid trials")
-            
-            # Validate the loaded study
-            validate_loaded_study(study)
-            
-            print(f"🔄 Will add {n_trials} more valid trials (total valid will be {completed_in_study + n_trials})")
-        except Exception as e:
-            print(f"⚠️ Error loading study file: {e}")
-            print("🆕 Creating fresh study instead")
-            study = optuna.create_study(
-                direction='maximize',
-                study_name=study_name,
-                sampler=create_sampler()
-            )
-    else:
-        if os.path.exists(study_file):
-            print(f"📂 Found existing study file: {study_file}")
-            print("🆕 Persistence disabled - creating fresh study (will overwrite)")
+    # Handle persistence flag
+    if not ENABLE_PERSISTENCE:
+        # Delete existing database file if persistence is disabled
+        if os.path.exists(db_file):
+            try:
+                os.remove(db_file)
+                print(f"🔄 Persistence disabled - deleted existing database")
+            except Exception as e:
+                print(f"⚠️ Failed to delete database: {e}")
         else:
-            print("🆕 No existing study found - creating new study")
-        
-        # Create fresh study
+            print(f"🆕 Persistence disabled - starting fresh")
+    else:
+        if os.path.exists(db_file):
+            print(f"📂 Persistence enabled - will continue with existing database")
+        else:
+            print(f"🆕 Persistence enabled - creating new database")
+    
+    # Create or load study with SQLite storage
+    try:
+        # Always try to load existing study first
         study = optuna.create_study(
-            direction='maximize',  # Maximize return on risk
+            storage=storage_path,
             study_name=study_name,
-            sampler=create_sampler()
+            direction='maximize',
+            sampler=create_sampler(),
+            load_if_exists=True
         )
+        
+        # Count completed trials
+        completed_in_study = validate_loaded_study(study)
+        
+        if completed_in_study > 0:
+            print(f"📂 Loaded existing study with {completed_in_study} valid trials")
+            print(f"🔄 Will add {n_trials} more valid trials (total valid will be {completed_in_study + n_trials})")
+        else:
+            print("🆕 Created new study (no previous trials found)")
+    
+    except Exception as e:
+        print(f"⚠️ Error with study: {e}")
+        print("⛔ Unable to create or load study - exiting")
+        raise
     
     # Track all past parameter combinations
     global seen
@@ -474,12 +478,7 @@ if __name__ == "__main__":
     # Run detailed analysis of best parameters
     best_params, detailed_results = run_best_trial_detailed(study)
     
-    # Save study for later analysis (optional)
-    try:
-        import joblib
-        joblib.dump(study, 'vwap_optimization_study.pkl')
-        print(f"\n💾 Study saved to 'vwap_optimization_study.pkl'")
-    except ImportError:
-        print(f"\n⚠️ Install joblib to save study: pip install joblib")
+    # No need to save study as it's already persisted in SQLite
+    print("\n💾 Study saved to SQLite database 'vwap.db'")
     
     print("\n✅ Optimization complete!") 
