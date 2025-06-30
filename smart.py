@@ -21,17 +21,17 @@ from main import (
 seen = set()
 
 # Configuration flags
-ENABLE_PERSISTENCE = False  # Set to True to accumulate trials across runs
-OPTIMIZATION_SEED = 42     # Set to a number for reproducible results, or None for random
-N_TRIALS = 5  # Adjust based on your computational budget
+ENABLE_PERSISTENCE = True  # Set to True to accumulate trials across runs
+OPTIMIZATION_SEED = 4242     # Set to a number for reproducible results, or None for random
+N_TRIALS = 10  # Adjust based on your computational budget
 
 # TPE Sampler configuration
-N_STARTUP_TRIALS = 10      # Number of random trials before TPE optimization starts
-N_EI_CANDIDATES = 24       # Number of candidates evaluated per TPE trial
+N_STARTUP_TRIALS = 5      # Number of random trials before TPE optimization starts
+N_EI_CANDIDATES = 48       # Number of candidates evaluated per TPE trial
 
 # Pruning configuration
-MIN_TRADE_THRESHOLD = 5     # Minimum trades required for valid trial
-MAX_ATTEMPT_LIMIT = 50      # Maximum total attempts (including pruned trials)
+MIN_TRADE_THRESHOLD = 10     # Minimum trades required for valid trial
+MAX_ATTEMPT_LIMIT = 30      # Maximum total attempts (including pruned trials)
 
 # Entry windows mapping - used throughout the optimization
 ENTRY_WINDOWS = {
