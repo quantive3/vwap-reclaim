@@ -36,8 +36,8 @@ def initialize_parameters():
     """
     return {
         # Backtest period
-        'start_date': "2023-01-04",
-        'end_date': "2023-01-04",
+        'start_date': "2023-01-01",
+        'end_date': "2024-05-31",
         
         # Strategy parameters
         'stretch_threshold': 0.001,  # 0.3%
@@ -86,7 +86,7 @@ def initialize_parameters():
         'slippage_amount': 0.02,   # fixed slippage per share
         
         # Debug settings
-        'debug_mode': True,  # Enable/disable debug outputs
+        'debug_mode': False,  # Enable/disable debug outputs
         
         # Silent mode for grid searches
         'silent_mode': False,  # Enable/disable all non-debug print outputs
@@ -1278,18 +1278,12 @@ def load_option_data(option_ticker, date, cache_dir, df_rth_filled, api_key, par
 
     # === Load or pull option price data ===
     try:
-        if os.path.exists(option_path):
-            df_option_rth = pd.read_pickle(option_path)
-            if params['debug_mode']:
-                print(f"📂 Option price data for {option_ticker} loaded from cache.")
-                # Generate and log hash for option price data
-                generate_dataframe_hash(df_option_rth, f"Option {option_ticker} {date}")
-            if len(df_option_rth) < params['min_option_price_rows']:
-                short_data_msg = f"Option price data for {option_ticker} on {date} is unusually short with only {len(df_option_rth)} rows. This may indicate incomplete data."
-                if not params.get('silent_mode', False):
-                    print(f"⚠️ {short_data_msg}")
-                track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
-        else:
+        # Track whether the fetch function was called
+        was_fetched = [False]
+        
+        def fetch_option():
+            was_fetched[0] = True
+            
             option_url = (
                 f"https://api.polygon.io/v2/aggs/ticker/{option_ticker}/range/1/second/"
                 f"{date}/{date}?adjusted=true&sort=asc&limit=50000&apiKey={api_key}"
@@ -1305,7 +1299,7 @@ def load_option_data(option_ticker, date, cache_dir, df_rth_filled, api_key, par
                 track_issue("errors", "missing_option_price_data", missing_data_msg, level="error", date=date)
                 issue_tracker["opportunities"]["failed_entries_data_issues"] += 1
                 status['error_message'] = missing_data_msg
-                return df_option_aligned, option_entry_price, status
+                return None
 
             df_option["timestamp"] = pd.to_datetime(df_option["t"], unit="ms", utc=True).dt.tz_convert("US/Eastern")
             df_option.rename(columns={
@@ -1321,18 +1315,37 @@ def load_option_data(option_ticker, date, cache_dir, df_rth_filled, api_key, par
             
             # Mark rows with actual data (before forward filling)
             df_option_rth['is_actual_data'] = True
-
-            if len(df_option_rth) < params['min_option_price_rows']:
-                short_data_msg = f"Option price data for {option_ticker} on {date} is unusually short with only {len(df_option_rth)} rows after pulling from API. This may indicate incomplete data."
-                if not params.get('silent_mode', False):
-                    print(f"⚠️ {short_data_msg}")
-                track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
-
-            df_option_rth.to_pickle(option_path)
-            if params['debug_mode']:
+                
+            return df_option_rth
+        
+        # Use the file-lock wrapper to handle caching
+        df_option_rth = load_with_cache_lock(
+            option_path,
+            fetch_option,
+            lock_timeout=60
+        )
+        
+        # Handle case where fetch_option returns None due to empty data
+        if df_option_rth is None:
+            return df_option_aligned, option_entry_price, status
+        
+        # Re-attach debug prints, hash generation, and warnings
+        if params['debug_mode']:
+            if was_fetched[0]:
                 print(f"💾 Option price data for {option_ticker} pulled and cached.")
                 # Generate and log hash for option price data
                 generate_dataframe_hash(df_option_rth, f"Option {option_ticker} {date}")
+            else:
+                print(f"📂 Option price data for {option_ticker} loaded from cache.")
+                # Generate and log hash for option price data
+                generate_dataframe_hash(df_option_rth, f"Option {option_ticker} {date}")
+                
+        if len(df_option_rth) < params['min_option_price_rows']:
+            source_context = "after pulling from API" if was_fetched[0] else "from cache"
+            short_data_msg = f"Option price data for {option_ticker} on {date} is unusually short with only {len(df_option_rth)} rows {source_context}. This may indicate incomplete data."
+            if not params.get('silent_mode', False):
+                print(f"⚠️ {short_data_msg}")
+            track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
         
         # === Timestamp alignment check ===
         # Add is_actual_data column if loading from cache and column doesn't exist
