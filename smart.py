@@ -34,9 +34,10 @@ from main import (
 seen = set()
 
 # Configuration flags
-ENABLE_PERSISTENCE = True  # Set to True to accumulate trials across runs
+ENABLE_PERSISTENCE = False  # Set to True to accumulate trials across runs
 OPTIMIZATION_SEED = 4242     # Set to a number for reproducible results, or None for random
-N_TRIALS = 10  # Adjust based on your computational budget
+N_TRIALS = 25  # Adjust based on your computational budget
+NUM_WORKERS = 3  # Number of parallel workers (1 = sequential execution)
 
 # Database connection pool settings
 DB_POOL_SIZE    = 5   # Number of persistent connections to the Postgres DB
@@ -313,28 +314,20 @@ def run_optimization(n_trials=100, study_name="vwap_bounce_optimization", max_at
     # Capture baseline completed trials (for persistence support)
     baseline_completed = len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE])
     
-    # Run optimization - try to get n_trials completed, but don't exceed attempt_limit
-    attempts_made = 0
-    target_reached = False
+    # Run optimization using Optuna's built-in parallel execution
     
-    while attempts_made < attempt_limit:
-        # Check current progress
-        completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
-        
-        if len(completed_trials) - baseline_completed >= n_trials:
-            target_reached = True
-            break
-        
-        # Run one more trial
-        remaining_attempts = attempt_limit - attempts_made
-        study.optimize(objective, n_trials=1, show_progress_bar=False)
-        attempts_made += 1
-        
-        # Show progress
-        completed_count = len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE])
-        pruned_count = len([t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED])
-        new_completed = completed_count - baseline_completed
-        print(f"Progress: {new_completed}/{n_trials} new completed, {pruned_count} total pruned, {attempts_made}/{attempt_limit} attempts")
+    # Optimize with specified number of trials
+    study.optimize(objective,
+                  n_trials=n_trials,
+                  n_jobs=NUM_WORKERS,
+                  show_progress_bar=False)
+    
+    # Calculate statistics after optimization
+    completed_count = len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE])
+    pruned_count = len([t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED])
+    new_completed = completed_count - baseline_completed
+    attempts_made = len(study.trials) - len([t for t in study.trials if t.number < baseline_completed])
+    print(f"Progress: {new_completed}/{n_trials} new completed, {pruned_count} total pruned, {attempts_made} attempts")
     
     # Final results
     completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
@@ -344,10 +337,10 @@ def run_optimization(n_trials=100, study_name="vwap_bounce_optimization", max_at
     print(f"✂️ Total pruned trials in study: {len(pruned_trials)}")
     print(f"🔄 Total attempts made in this run: {attempts_made}")
     
-    if target_reached:
+    if new_completed >= n_trials:
         print(f"🎯 Successfully reached target of {n_trials} completed trials!")
     else:
-        print(f"⚠️ Only found {len(completed_trials)} valid trials out of {attempts_made} attempts")
+        print(f"⚠️ Only found {new_completed} valid trials out of {attempts_made} attempts")
         print(f"💡 Consider lowering MIN_TRADE_THRESHOLD or expanding parameter ranges")
     
     return study
