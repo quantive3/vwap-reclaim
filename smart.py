@@ -1,7 +1,7 @@
 # === SMART GRID SEARCH FOR VWAP BOUNCE STRATEGY ===
 import optuna
 import pandas as pd
-from datetime import time
+from datetime import time, datetime
 import copy
 import sys
 import os
@@ -170,6 +170,8 @@ def objective(trial):
     Returns:
         float: Average return on risk percentage (to be maximized)
     """
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] PID: {os.getpid()} - Trial {trial.number}")
+    
     global seen
     try:
         # Create optimized parameters for this trial
