@@ -5,6 +5,19 @@ from datetime import time
 import copy
 import sys
 import os
+from optuna.storages import RDBStorage
+
+# PostgreSQL connection info (can override via env vars)
+PG_HOST     = os.getenv("PGHOST", "127.0.0.1")
+PG_PORT     = os.getenv("PGPORT", "5432")
+PG_DATABASE = os.getenv("PGDATABASE", "optuna_db")
+PG_USER     = os.getenv("PGUSER", "optuna")
+PG_PASSWORD = os.getenv("PGPASSWORD", "qwertgfdsa!!")
+
+POSTGRES_URL = (
+    f"postgresql+psycopg2://{PG_USER}:{PG_PASSWORD}"
+    f"@{PG_HOST}:{PG_PORT}/{PG_DATABASE}"
+)
 
 # Import the main strategy components
 from main import (
@@ -24,6 +37,11 @@ seen = set()
 ENABLE_PERSISTENCE = True  # Set to True to accumulate trials across runs
 OPTIMIZATION_SEED = 4242     # Set to a number for reproducible results, or None for random
 N_TRIALS = 10  # Adjust based on your computational budget
+
+# Database connection pool settings
+DB_POOL_SIZE    = 5   # Number of persistent connections to the Postgres DB
+DB_MAX_OVERFLOW = 10  # Additional "burst" connections above DB_POOL_SIZE
+DB_POOL_TIMEOUT = 30  # Seconds to wait for a connection from the pool
 
 # TPE Sampler configuration
 N_STARTUP_TRIALS = 5      # Number of random trials before TPE optimization starts
@@ -238,32 +256,33 @@ def run_optimization(n_trials=100, study_name="vwap_bounce_optimization", max_at
     print(f"📈 Parameters: 9 dimensions")
     print("-" * 50)
     
-    # SQLite storage path and database file path
-    db_file = "vwap.db"
-    storage_path = f"sqlite:///{db_file}"
+    # PostgreSQL-based Optuna storage using RDBStorage
+    storage = RDBStorage(
+        url=POSTGRES_URL,
+        engine_kwargs={
+            "pool_size": DB_POOL_SIZE,
+            "max_overflow": DB_MAX_OVERFLOW,
+            "pool_timeout": DB_POOL_TIMEOUT,
+        }
+    )
     
-    # Handle persistence flag
+    # Handle persistence flag: optionally delete existing study in Postgres
     if not ENABLE_PERSISTENCE:
-        # Delete existing database file if persistence is disabled
-        if os.path.exists(db_file):
-            try:
-                os.remove(db_file)
-                print(f"🔄 Persistence disabled - deleted existing database")
-            except Exception as e:
-                print(f"⚠️ Failed to delete database: {e}")
-        else:
-            print(f"🆕 Persistence disabled - starting fresh")
+        try:
+            optuna.delete_study(study_name=study_name, storage=storage)
+            print(f"🔄 Persistence disabled – deleted existing study '{study_name}' in Postgres")
+        except KeyError:
+            print(f"🆕 No existing study '{study_name}' to delete in Postgres")
+        except Exception as e:
+            print(f"⚠️ Failed to delete study '{study_name}': {e}")
     else:
-        if os.path.exists(db_file):
-            print(f"📂 Persistence enabled - will continue with existing database")
-        else:
-            print(f"🆕 Persistence enabled - creating new database")
+        print(f"📂 Persistence enabled – using existing study '{study_name}' in Postgres (or creating new if none)")
     
-    # Create or load study with SQLite storage
+    # Create or load study with PostgreSQL storage
     try:
         # Always try to load existing study first
         study = optuna.create_study(
-            storage=storage_path,
+            storage=storage,
             study_name=study_name,
             direction='maximize',
             sampler=create_sampler(),
@@ -478,7 +497,7 @@ if __name__ == "__main__":
     # Run detailed analysis of best parameters
     best_params, detailed_results = run_best_trial_detailed(study)
     
-    # No need to save study as it's already persisted in SQLite
-    print("\n💾 Study saved to SQLite database 'vwap.db'")
+    # No need to save study as it's already persisted in PostgreSQL
+    print("\n💾 Study saved to PostgreSQL database")
     
     print("\n✅ Optimization complete!") 
