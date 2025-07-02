@@ -34,6 +34,21 @@ else:
     print("✅ No duplicate parameter combos found among completed trials.")
 
 print(f"Study has {len(study.trials)} trials")
+
+# Count trials by state
+state_counts = defaultdict(int)
+for trial in study.trials:
+    state_counts[trial.state] += 1
+
+print("\nTrial Status Summary:")
+print("-" * 50)
+print(f"COMPLETE:  {state_counts.get(TrialState.COMPLETE, 0)}")
+print(f"PRUNED:    {state_counts.get(TrialState.PRUNED, 0)}")
+print(f"FAIL:      {state_counts.get(TrialState.FAIL, 0)}")
+print(f"RUNNING:   {state_counts.get(TrialState.RUNNING, 0)}")
+print(f"WAITING:   {state_counts.get(TrialState.WAITING, 0)}")
+print("-" * 50)
+
 print("\nChecking user attributes for each trial:")
 print("-" * 50)
 
