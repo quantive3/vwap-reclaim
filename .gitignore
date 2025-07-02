@@ -11,3 +11,4 @@ sample_trades.csv
 backtest.prof
 *.db
 *.png
+*.prof
