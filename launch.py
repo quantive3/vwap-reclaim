@@ -10,7 +10,7 @@ def main():
     for i in range(n):
         # This will launch exactly the same script with the same env
         p = subprocess.Popen(
-            [sys.executable, "smart-temp-TAKEOVER.py"],
+            [sys.executable, "smart.py"],
             env=os.environ  # inherit your PGHOST, PGUSER, etc.
         )
         procs.append(p)
