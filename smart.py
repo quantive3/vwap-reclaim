@@ -5,6 +5,7 @@ from datetime import time, datetime
 import copy
 import sys
 import os
+import multiprocessing
 from optuna.storages import RDBStorage
 
 # PostgreSQL connection info (can override via env vars)
@@ -36,7 +37,7 @@ seen = set()
 # Configuration flags
 ENABLE_PERSISTENCE = False  # Set to True to accumulate trials across runs
 OPTIMIZATION_SEED = 4242     # Set to a number for reproducible results, or None for random
-N_TRIALS = 25  # Adjust based on your computational budget
+N_TRIALS = 10  # Adjust based on your computational budget
 NUM_WORKERS = 3  # Number of parallel workers (1 = sequential execution)
 
 # Database connection pool settings
@@ -50,7 +51,7 @@ N_EI_CANDIDATES = 48       # Number of candidates evaluated per TPE trial
 
 # Pruning configuration
 MIN_TRADE_THRESHOLD = 10     # Minimum trades required for valid trial
-MAX_ATTEMPT_LIMIT = 30      # Maximum total attempts (including pruned trials)
+MAX_ATTEMPT_LIMIT = 30      # Maximum total attempts (including pruned trials). Currently non-functional.
 
 # Entry windows mapping - used throughout the optimization
 ENTRY_WINDOWS = {
@@ -480,6 +481,9 @@ def run_best_trial_detailed(study):
     return best_params, detailed_results
 
 if __name__ == "__main__":
+    # Add Windows executable support
+    multiprocessing.freeze_support()
+    
     print("🤖 VWAP Bounce Strategy - Smart Grid Search")
     print("=" * 50)
     
