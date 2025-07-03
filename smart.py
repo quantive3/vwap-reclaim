@@ -2,6 +2,7 @@
 import optuna
 import pandas as pd
 from datetime import time
+import datetime   # added so eval() can resolve datetime.time
 import copy
 import sys
 import os
