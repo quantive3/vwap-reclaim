@@ -6,6 +6,8 @@ import copy
 import sys
 import os
 from optuna.storages import RDBStorage
+import sqlalchemy
+from sqlalchemy.exc import IntegrityError
 
 # PostgreSQL connection info (can override via env vars)
 PG_HOST     = os.getenv("PGHOST", "127.0.0.1")
@@ -36,7 +38,7 @@ seen = set()
 # Configuration flags
 ENABLE_PERSISTENCE = True  # Set to True to accumulate trials across runs
 OPTIMIZATION_SEED = 4242     # Set to a number for reproducible results, or None for random
-N_TRIALS = 50  # Adjust based on your computational budget
+N_TRIALS = 30  # Adjust based on your computational budget
 
 # Database connection pool settings
 DB_POOL_SIZE    = 3   # Number of persistent connections to the Postgres DB
@@ -44,12 +46,12 @@ DB_MAX_OVERFLOW = 5  # Additional "burst" connections above DB_POOL_SIZE
 DB_POOL_TIMEOUT = 30  # Seconds to wait for a connection from the pool
 
 # TPE Sampler configuration
-N_STARTUP_TRIALS = 5      # Number of random trials before TPE optimization starts
+N_STARTUP_TRIALS = 250      # Number of random trials before TPE optimization starts
 N_EI_CANDIDATES = 48       # Number of candidates evaluated per TPE trial
 
 # Pruning configuration
-MIN_TRADE_THRESHOLD = 10     # Minimum trades required for valid trial
-MAX_ATTEMPT_LIMIT = 100      # Maximum total attempts (including pruned trials)
+MIN_TRADE_THRESHOLD = 15     # Minimum trades required for valid trial
+MAX_ATTEMPT_LIMIT = 200      # Maximum total attempts (including pruned trials)
 
 # Entry windows mapping - used throughout the optimization
 ENTRY_WINDOWS = {
@@ -62,6 +64,32 @@ ENTRY_WINDOWS = {
 
 from optuna.samplers import TPESampler
 from optuna.trial import TrialState
+
+# Global variable to store the SQLAlchemy engine
+db_engine = None
+
+def ensure_seen_combos_table(engine):
+    """
+    Ensure the seen_combos table exists in the database.
+    
+    Args:
+        engine: SQLAlchemy engine connected to the database
+    """
+    try:
+        # Create the seen_combos table if it doesn't exist
+        with engine.connect() as connection:
+            connection.execute(sqlalchemy.text("""
+                CREATE TABLE IF NOT EXISTS seen_combos (
+                    study_name TEXT NOT NULL,
+                    combo_key TEXT NOT NULL,
+                    PRIMARY KEY (study_name, combo_key)
+                )
+            """))
+            connection.commit()
+        print("✅ Verified seen_combos table exists")
+    except Exception as e:
+        print(f"⚠️ Error ensuring seen_combos table: {e}")
+        raise
 
 class ValidCountTPESampler(TPESampler):
     def __init__(self, n_valid_startup_trials, **kwargs):
@@ -169,16 +197,43 @@ def objective(trial):
     Returns:
         float: Average return on risk percentage (to be maximized)
     """
-    global seen
+    global seen, db_engine
+    
     try:
         # Create optimized parameters for this trial
         params = create_optimized_params(trial)
         
-        # Skip if this combo was already tried
+        # Skip if this combo was already tried (in-memory check)
         key = tuple(sorted(params.items()))
         if key in seen:
             trial.set_user_attr('duplicate', True)
-            raise optuna.TrialPruned("duplicate parameter combo")
+            trial.set_user_attr('duplicate_source', 'memory')
+            raise optuna.TrialPruned("duplicate parameter combo (memory)")
+        
+        # Skip if this combo exists in the database (persistent check)
+        study_name = trial.study.study_name
+        combo_key = str(key)  # Convert tuple to string for storage
+        
+        try:
+            # Try to insert into seen_combos table
+            with db_engine.connect() as connection:
+                connection.execute(
+                    sqlalchemy.text(
+                        "INSERT INTO seen_combos (study_name, combo_key) VALUES (:study_name, :combo_key)"
+                    ),
+                    {"study_name": study_name, "combo_key": combo_key}
+                )
+                connection.commit()
+        except IntegrityError:
+            # If insert fails due to primary key violation, it's a duplicate
+            trial.set_user_attr('duplicate', True)
+            trial.set_user_attr('duplicate_source', 'database')
+            raise optuna.TrialPruned("duplicate parameter combo (database)")
+        except Exception as e:
+            # Log other database errors but continue with the trial
+            print(f"⚠️ Database error in duplicate check: {e}")
+        
+        # Add to in-memory set
         seen.add(key)
         
         # Initialize issue tracker for this trial
@@ -248,6 +303,8 @@ def run_optimization(n_trials=100, study_name="vwap_bounce_optimization", max_at
     Returns:
         optuna.Study: Completed study object
     """
+    global db_engine
+    
     print(f"🚀 Starting VWAP Bounce Strategy Optimization")
     print(f"📊 Target: Maximize Average Return on Risk")
     print(f"🔄 Target completed trials: {n_trials}")
@@ -266,11 +323,27 @@ def run_optimization(n_trials=100, study_name="vwap_bounce_optimization", max_at
         }
     )
     
+    # Get the SQLAlchemy engine from the RDBStorage
+    db_engine = storage.engine
+    
+    # Ensure the seen_combos table exists
+    ensure_seen_combos_table(db_engine)
+    
     # Handle persistence flag: optionally delete existing study in Postgres
     if not ENABLE_PERSISTENCE:
         try:
             optuna.delete_study(study_name=study_name, storage=storage)
             print(f"🔄 Persistence disabled – deleted existing study '{study_name}' in Postgres")
+            
+            # Also clear the seen_combos table for this study
+            with db_engine.connect() as connection:
+                connection.execute(
+                    sqlalchemy.text("DELETE FROM seen_combos WHERE study_name = :study_name"),
+                    {"study_name": study_name}
+                )
+                connection.commit()
+                print(f"🔄 Cleared seen_combos for study '{study_name}'")
+                
         except KeyError:
             print(f"🆕 No existing study '{study_name}' to delete in Postgres")
         except Exception as e:
@@ -306,6 +379,21 @@ def run_optimization(n_trials=100, study_name="vwap_bounce_optimization", max_at
     # Track all past parameter combinations
     global seen
     seen = { tuple(sorted(t.params.items())) for t in study.trials }
+    
+    # Also load parameter combinations from the seen_combos table
+    try:
+        with db_engine.connect() as connection:
+            result = connection.execute(
+                sqlalchemy.text("SELECT combo_key FROM seen_combos WHERE study_name = :study_name"),
+                {"study_name": study_name}
+            )
+            # Note: This is a simplification - proper deserialization would be needed
+            # for the actual tuple format, but this demonstrates the concept
+            db_seen = {eval(row[0]) for row in result}
+            seen.update(db_seen)
+            print(f"📂 Loaded {len(db_seen)} parameter combinations from database")
+    except Exception as e:
+        print(f"⚠️ Error loading seen combinations from database: {e}")
     
     # Determine attempt limit
     attempt_limit = max_attempts or MAX_ATTEMPT_LIMIT
@@ -404,6 +492,13 @@ def print_optimization_results(study):
     print(f"   Completed Trials: {len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE])}")
     print(f"   Failed Trials: {len([t for t in study.trials if t.state == optuna.trial.TrialState.FAIL])}")
     
+    # Count duplicates by source
+    memory_dupes = len([t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED 
+                       and t.user_attrs.get('duplicate_source') == 'memory'])
+    db_dupes = len([t for t in study.trials if t.state == optuna.trial.TrialState.PRUNED 
+                   and t.user_attrs.get('duplicate_source') == 'database'])
+    print(f"   Duplicate Trials: {memory_dupes} (memory) + {db_dupes} (database)")
+    
     # Top 5 trials
     print(f"\n🏅 TOP 5 TRIALS:")
     sorted_trials = sorted(study.trials, key=lambda t: t.value if t.value is not None else -float('inf'), reverse=True)
@@ -462,7 +557,7 @@ def run_best_trial_detailed(study):
     
     print(f"\n📈 DETAILED PERFORMANCE METRICS:")
     for metric_name, metric_value in metrics.items():
-        if metric_name != 'error':  # Skip error messages
+        if metric_name not in ['error', 'duplicate', 'duplicate_source']:  # Skip non-metric attributes
             formatted_name = metric_name.replace('_', ' ').title()
             # Format the value appropriately
             if metric_value == float('inf'):
@@ -499,5 +594,6 @@ if __name__ == "__main__":
     
     # No need to save study as it's already persisted in PostgreSQL
     print("\n💾 Study saved to PostgreSQL database")
+    print(f"💾 Parameter combinations stored in seen_combos table for future runs")
     
     print("\n✅ Optimization complete!") 
