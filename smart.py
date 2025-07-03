@@ -38,8 +38,8 @@ seen = set()
 
 # Configuration flags
 ENABLE_PERSISTENCE = True  # Set to True to accumulate trials across runs
-OPTIMIZATION_SEED = 4242     # Set to a number for reproducible results, or None for random
-N_TRIALS = 30  # Adjust based on your computational budget
+OPTIMIZATION_SEED = None     # Set to a number for reproducible results, or None for random
+N_TRIALS = 50  # Adjust based on your computational budget
 
 # Database connection pool settings
 DB_POOL_SIZE    = 3   # Number of persistent connections to the Postgres DB
@@ -51,7 +51,7 @@ N_STARTUP_TRIALS = 250      # Number of random trials before TPE optimization st
 N_EI_CANDIDATES = 48       # Number of candidates evaluated per TPE trial
 
 # Pruning configuration
-MIN_TRADE_THRESHOLD = 15     # Minimum trades required for valid trial
+MIN_TRADE_THRESHOLD = 170     # Minimum trades required for valid trial
 MAX_ATTEMPT_LIMIT = 200      # Maximum total attempts (including pruned trials)
 
 # Entry windows mapping - used throughout the optimization
@@ -158,7 +158,7 @@ def create_optimized_params(trial):
     take_profit = trial.suggest_categorical('take_profit_percent', [25, 35, 50, 60, 70, 80, 90, 100])
     stop_loss = trial.suggest_categorical('stop_loss_percent', [-25, -35, -50, -60, -70, -80, -90, -100])
     max_duration = trial.suggest_categorical('max_trade_duration_seconds', [60, 120, 180, 240, 300, 600])
-    strikes_depth = trial.suggest_categorical('strikes_depth', [1, 2, 3])
+    strikes_depth = trial.suggest_categorical('strikes_depth', [1])
     option_mode = trial.suggest_categorical('option_selection_mode', ['itm', 'otm'])
     
     # Apply the optimized parameters
