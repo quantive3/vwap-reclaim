@@ -1,0 +1,8 @@
+optuna
+pandas
+numpy
+requests
+filelock
+sqlalchemy
+psycopg2-binary
+matplotlib

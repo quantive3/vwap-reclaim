@@ -12,3 +12,4 @@ backtest.prof
 *.db
 *.png
 *.prof
+/.venv
