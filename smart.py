@@ -10,12 +10,15 @@ from optuna.storages import RDBStorage
 import sqlalchemy
 from sqlalchemy.exc import IntegrityError
 
-# PostgreSQL connection info (can override via env vars)
-PG_HOST     = os.getenv("PGHOST", "127.0.0.1")
-PG_PORT     = os.getenv("PGPORT", "5432")
-PG_DATABASE = os.getenv("PGDATABASE", "optuna_db")
-PG_USER     = os.getenv("PGUSER", "optuna")
-PG_PASSWORD = os.getenv("PGPASSWORD", "qwertgfdsa!!")
+# Import credentials from secret file
+from secret import PG_HOST, PG_PORT, PG_DATABASE, PG_USER, PG_PASSWORD
+
+# PostgreSQL connection info (still allows override via env vars)
+PG_HOST     = os.getenv("PGHOST", PG_HOST)
+PG_PORT     = os.getenv("PGPORT", PG_PORT)
+PG_DATABASE = os.getenv("PGDATABASE", PG_DATABASE)
+PG_USER     = os.getenv("PGUSER", PG_USER)
+PG_PASSWORD = os.getenv("PGPASSWORD", PG_PASSWORD)
 
 POSTGRES_URL = (
     f"postgresql+psycopg2://{PG_USER}:{PG_PASSWORD}"
@@ -39,7 +42,7 @@ seen = set()
 # Configuration flags
 ENABLE_PERSISTENCE = True  # Set to True to accumulate trials across runs
 OPTIMIZATION_SEED = None     # Set to a number for reproducible results, or None for random
-N_TRIALS = 50  # Adjust based on your computational budget
+N_TRIALS = 1  # Adjust based on your computational budget
 
 # Database connection pool settings
 DB_POOL_SIZE    = 3   # Number of persistent connections to the Postgres DB
@@ -52,7 +55,7 @@ N_EI_CANDIDATES = 48       # Number of candidates evaluated per TPE trial
 
 # Pruning configuration
 MIN_TRADE_THRESHOLD = 170     # Minimum trades required for valid trial
-MAX_ATTEMPT_LIMIT = 200      # Maximum total attempts (including pruned trials)
+MAX_ATTEMPT_LIMIT = 600      # Maximum total attempts (including pruned trials)
 
 # Entry windows mapping - used throughout the optimization
 ENTRY_WINDOWS = {
