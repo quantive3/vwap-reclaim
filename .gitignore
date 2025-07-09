@@ -13,3 +13,5 @@ backtest.prof
 *.png
 *.prof
 /.venv
+*.csv
+*.xlsx
