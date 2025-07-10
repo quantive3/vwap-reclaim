@@ -42,7 +42,7 @@ seen = set()
 # Configuration flags
 ENABLE_PERSISTENCE = True  # Set to True to accumulate trials across runs
 OPTIMIZATION_SEED = None     # Set to a number for reproducible results, or None for random
-N_TRIALS = 1  # Adjust based on your computational budget
+N_TRIALS = 100  # Adjust based on your computational budget
 
 # Database connection pool settings
 DB_POOL_SIZE    = 3   # Number of persistent connections to the Postgres DB

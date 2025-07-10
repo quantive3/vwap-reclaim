@@ -37,7 +37,7 @@ def initialize_parameters():
     return {
         # Backtest period
         'start_date': "2023-01-01",
-        'end_date': "2023-03-31",
+        'end_date': "2024-05-31",
         
         # Strategy parameters
         'stretch_threshold': 0.003,  # 0.3%
@@ -49,9 +49,9 @@ def initialize_parameters():
         'entry_end_time': time(15, 45),
         
         # Exit conditions
-        'take_profit_percent': 90,     # Take profit at 25% gain
+        'take_profit_percent': 100,     # Take profit at 25% gain
         'stop_loss_percent': -25,      # Stop loss at 50% loss
-        'max_trade_duration_seconds': 240,  # Exit after 300 seconds (5 minutes)
+        'max_trade_duration_seconds': 600,  # Exit after 300 seconds (5 minutes)
         'end_of_day_exit_time': time(15, 54),  # trade exit cutoff
         'emergency_exit_time': time(15, 55),   # absolute failsafe exit (overrides all other logic)
         
@@ -64,7 +64,7 @@ def initialize_parameters():
         # Instrument selection
         'ticker': 'SPY',
         'require_same_day_expiry': True,  # Whether to strictly require same-day expiry options
-        'strikes_depth': 3,  # Number of strikes from ATM to target (1 = closest, 2 = second closest, etc.). Always use 1 or greater.
+        'strikes_depth': 1,  # Number of strikes from ATM to target (1 = closest, 2 = second closest, etc.). Always use 1 or greater.
         'option_selection_mode': 'itm',  # Options: 'itm', 'otm', or 'atm' - determines whether to select in-the-money, out-of-money, or at-the-money options
         
         # Position sizing
