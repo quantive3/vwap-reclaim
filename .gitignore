@@ -16,3 +16,4 @@ backtest.prof
 *.csv
 *.xlsx
 *.zip
+/commit_archive_before_gh
