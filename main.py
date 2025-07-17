@@ -6,7 +6,7 @@ CACHE_DIR = "./polygon_cache"  # Local cache directory
 
 # === STEP 2: API Key from Secret File ===
 try:
-    from secret import API_KEY
+    from config import API_KEY
     API_KEY_LOADED_FROM_SECRET = True
 except ImportError:
     # Fallback to manual input if secret.py is not available

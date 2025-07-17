@@ -10,15 +10,15 @@ from optuna.storages import RDBStorage
 import sqlalchemy
 from sqlalchemy.exc import IntegrityError
 
-# Import credentials from secret file
-from secret import PG_HOST, PG_PORT, PG_DATABASE, PG_USER, PG_PASSWORD
+# Import credentials from config file
+from config import PG_HOST, PG_PORT, PG_DATABASE, PG_USER, PG_PASSWORD
 
 # PostgreSQL connection info (still allows override via env vars)
-PG_HOST     = os.getenv("PGHOST", PG_HOST)
-PG_PORT     = os.getenv("PGPORT", PG_PORT)
-PG_DATABASE = os.getenv("PGDATABASE", PG_DATABASE)
-PG_USER     = os.getenv("PGUSER", PG_USER)
-PG_PASSWORD = os.getenv("PGPASSWORD", PG_PASSWORD)
+PG_HOST     = os.getenv("PG_HOST",     PG_HOST)
+PG_PORT     = os.getenv("PG_PORT",     PG_PORT)
+PG_DATABASE = os.getenv("PG_DATABASE", PG_DATABASE)
+PG_USER     = os.getenv("PG_USER",     PG_USER)
+PG_PASSWORD = os.getenv("PG_PASSWORD", PG_PASSWORD)
 
 POSTGRES_URL = (
     f"postgresql+psycopg2://{PG_USER}:{PG_PASSWORD}"
@@ -42,7 +42,7 @@ seen = set()
 # Configuration flags
 ENABLE_PERSISTENCE = True  # Set to True to accumulate trials across runs
 OPTIMIZATION_SEED = None     # Set to a number for reproducible results, or None for random
-N_TRIALS = 100  # Adjust based on your computational budget
+N_TRIALS = 1  # Adjust based on your computational budget
 
 # Database connection pool settings
 DB_POOL_SIZE    = 3   # Number of persistent connections to the Postgres DB

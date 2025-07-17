@@ -5,14 +5,14 @@ from optuna.trial import TrialState
 from optuna.storages import RDBStorage
 
 # Import credentials from secret file
-from secret import PG_HOST, PG_PORT, PG_DATABASE, PG_USER, PG_PASSWORD
+from config import PG_HOST, PG_PORT, PG_DATABASE, PG_USER, PG_PASSWORD
 
 # PostgreSQL connection info (still allows override via env vars)
-PG_HOST     = os.getenv("PGHOST", PG_HOST)
-PG_PORT     = os.getenv("PGPORT", PG_PORT)
-PG_DATABASE = os.getenv("PGDATABASE", PG_DATABASE)
-PG_USER     = os.getenv("PGUSER", PG_USER)
-PG_PASSWORD = os.getenv("PGPASSWORD", PG_PASSWORD)
+PG_HOST     = os.getenv("PG_HOST",     PG_HOST)
+PG_PORT     = os.getenv("PG_PORT",     PG_PORT)
+PG_DATABASE = os.getenv("PG_DATABASE", PG_DATABASE)
+PG_USER     = os.getenv("PG_USER",     PG_USER)
+PG_PASSWORD = os.getenv("PG_PASSWORD", PG_PASSWORD)
 
 POSTGRES_URL = (
     f"postgresql+psycopg2://{PG_USER}:{PG_PASSWORD}"

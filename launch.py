@@ -11,7 +11,7 @@ def main():
         # This will launch exactly the same script with the same env
         p = subprocess.Popen(
             [sys.executable, "smart.py"],
-            env=os.environ  # inherit your PGHOST, PGUSER, etc.
+            env=os.environ  # inherit your PG_HOST, PG_USER, etc.
         )
         procs.append(p)
     
