@@ -1,0 +1,27 @@
+# Exclude sensitive files
+secret.py
+
+# Exclude version control
+.git/
+.gitignore
+
+# Exclude Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+
+# Exclude data files that should be mounted at runtime
+polygon_cache/
+
+# Exclude development/testing artifacts
+*.prof
+tests/
+.cursor/
+commit_archive_before_gh/
+
+# Exclude documentation and non-essential files
+*.png
+*.xlsx
+*.csv
+optuna-pg_backup.zip 
