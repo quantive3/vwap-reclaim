@@ -45,8 +45,8 @@ OPTIMIZATION_SEED = None     # Set to a number for reproducible results, or None
 N_TRIALS = 1  # Adjust based on your computational budget
 
 # Database connection pool settings
-DB_POOL_SIZE    = 1   # Number of persistent connections to the Postgres DB
-DB_MAX_OVERFLOW = 3  # Additional "burst" connections above DB_POOL_SIZE
+DB_POOL_SIZE    = 3   # Number of persistent connections to the Postgres DB
+DB_MAX_OVERFLOW = 5  # Additional "burst" connections above DB_POOL_SIZE
 DB_POOL_TIMEOUT = 30  # Seconds to wait for a connection from the pool
 
 # TPE Sampler configuration
