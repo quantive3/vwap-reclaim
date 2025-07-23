@@ -8,7 +8,7 @@ from smart import POSTGRES_URL
 # Load the study from SQLite database
 storage = RDBStorage(url=POSTGRES_URL)
 study = optuna.load_study(
-    study_name="vwap_bounce_optimization",
+    study_name="vwap_bounce_optimization_v2",
     storage=storage,
 )
 
