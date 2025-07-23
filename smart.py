@@ -39,6 +39,13 @@ from main import (
 # Track all param‐combos we've already tried
 seen = set()
 
+# Override backtest dates (edit these to change the backtest window)
+BACKTEST_START_DATE = "2023-01-01"
+BACKTEST_END_DATE   = "2024-05-31"
+
+# Name of the Optuna study (edit this to start a fresh study)
+STUDY_NAME = "vwap_bounce_optimization_v2"
+
 # Configuration flags
 ENABLE_PERSISTENCE = True  # Set to True to accumulate trials across runs
 OPTIMIZATION_SEED = None     # Set to a number for reproducible results, or None for random
@@ -151,6 +158,12 @@ def create_optimized_params(trial):
     """
     # Start with base parameters
     base_params = initialize_parameters()
+    
+    # Override default backtest date range if desired
+    if BACKTEST_START_DATE is not None:
+        base_params['start_date'] = BACKTEST_START_DATE
+    if BACKTEST_END_DATE is not None:
+        base_params['end_date'] = BACKTEST_END_DATE
     
     # Suggest parameters from the specified ranges
     entry_window_idx = trial.suggest_categorical('entry_window', [0, 1, 2, 3, 4])
@@ -296,7 +309,7 @@ def objective(trial):
         # Return large negative value for failed trials
         return -1000.0
 
-def run_optimization(n_trials=100, study_name="vwap_bounce_optimization", max_attempts=None):
+def run_optimization(n_trials=100, study_name=STUDY_NAME, max_attempts=None):
     """
     Run the Optuna optimization study.
     
@@ -588,7 +601,7 @@ if __name__ == "__main__":
     print("=" * 50)
     
     # Run optimization
-    study = run_optimization(n_trials=N_TRIALS, max_attempts=MAX_ATTEMPT_LIMIT)
+    study = run_optimization(n_trials=N_TRIALS, study_name=STUDY_NAME, max_attempts=MAX_ATTEMPT_LIMIT)
     
     # Print results
     print_optimization_results(study)
