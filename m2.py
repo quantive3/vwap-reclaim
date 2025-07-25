@@ -41,22 +41,28 @@ def initialize_parameters():
     """
     return {
         # Backtest period
-        'start_date': "2024-06-01",
-        'end_date': "2025-05-31",
+        'start_date': "2023-01-01",
+        'end_date': "2023-03-31",
         
         # Strategy parameters
-        'stretch_threshold': 0.003,  # 0.3%
-        'reclaim_threshold': 0.0024,  # 0.2% - should always be less than stretch threshold
-        'cooldown_period_seconds': 60,  # Cooldown period in seconds
+        'stretch_threshold': 0.001,  # 0.3%
+        'reclaim_threshold': 0.0007,  # 0.2% - should always be less than stretch threshold
+        'cooldown_period_seconds': 120,  # Cooldown period in seconds
         
         # Time windows
-        'entry_start_time': time(12, 0),
-        'entry_end_time': time(15, 0),
+        'entry_start_time': time(9, 30),
+        'entry_end_time': time(15, 45),
+        
+        # Trend filter parameters
+        'trend_filter_enabled': True,  # Whether to enable the trend filter
+        'trend_ma_type': "sma",         # Moving average type: "sma" or "ema"
+        'trend_lookback_seconds': 300, # Lookback period in seconds (30 min)
+        'trend_buffer_percent': 0.1,   # Buffer percentage (0.05%)
         
         # Exit conditions
-        'take_profit_percent': 80,     # Take profit at 25% gain
+        'take_profit_percent': 100,     # Take profit at 25% gain
         'stop_loss_percent': -25,      # Stop loss at 50% loss
-        'max_trade_duration_seconds': 900,  # Exit after 300 seconds (5 minutes)
+        'max_trade_duration_seconds': 600,  # Exit after 300 seconds (5 minutes)
         'end_of_day_exit_time': time(15, 54),  # trade exit cutoff
         'emergency_exit_time': time(15, 55),   # absolute failsafe exit (overrides all other logic)
         
@@ -151,7 +157,8 @@ def initialize_issue_tracker(params):
             "total_stretch_signals": 0,
             "valid_entry_opportunities": 0,
             "failed_entries_data_issues": 0,
-            "total_options_contracts": 0
+            "total_options_contracts": 0,
+            "trend_misaligned_block": 0  # Counter for trades blocked by trend filter
         },
         "risk_management": {
             "emergency_exits": 0,       # Total number of emergency exits triggered
@@ -352,6 +359,63 @@ def load_spy_data(date, cache_dir, api_key, params, debug_mode=False):
         if not params.get('silent_mode', False):
             print(f"⚠️ {short_data_msg}")
         track_issue("warnings", "short_data_warnings", short_data_msg, date=date)
+    
+    # Calculate moving average based on parameters
+    trend_lookback_seconds = params['trend_lookback_seconds']
+    trend_ma_type = params['trend_ma_type'].lower()
+    
+    # Calculate the moving average
+    if trend_ma_type == "ema":
+        # For EMA, we need to calculate the span from the lookback period
+        # span = 2 * lookback_seconds / (1 + 1) = lookback_seconds
+        temp_ma = df_rth_filled['close'].ewm(span=trend_lookback_seconds, adjust=False).mean()
+        
+        # Create a mask for the initial lookback period
+        mask = np.zeros(len(df_rth_filled), dtype=bool)
+        mask[trend_lookback_seconds:] = True
+        
+        # Apply the mask to force NaNs for the initial lookback period like SMA
+        df_rth_filled['trend_ma'] = np.where(mask, temp_ma, np.nan)
+    else:  # default to SMA
+        # Simple moving average with rolling window of lookback_seconds
+        df_rth_filled['trend_ma'] = df_rth_filled['close'].rolling(window=trend_lookback_seconds).mean()
+    
+    # Debug output for moving average calculation
+    if debug_mode and params.get('debug_mode', False):
+        # Print first 10 rows of the day
+        print("\n🔍 First 10 rows of the day:")
+        print(df_rth_filled[['timestamp', 'close', 'vwap_running', 'trend_ma']].head(10))
+        
+        # Make sure we don't exceed the dataframe length
+        lookback_end = min(trend_lookback_seconds + 5, len(df_rth_filled))
+        if lookback_end > trend_lookback_seconds:
+            # Print first 5 rows after lookback history has accumulated
+            print(f"\n🔍 First rows after {trend_lookback_seconds} seconds lookback:")
+            print(df_rth_filled.iloc[trend_lookback_seconds:lookback_end][['timestamp', 'close', 'vwap_running', 'trend_ma']])
+            
+            # Calculate both SMA and EMA for comparison if debug mode is on
+            sma = df_rth_filled['close'].rolling(window=trend_lookback_seconds).mean()
+            ema = df_rth_filled['close'].ewm(span=trend_lookback_seconds, adjust=False).mean()
+            
+            # Create a mask for the initial lookback period
+            mask = np.zeros(len(df_rth_filled), dtype=bool)
+            mask[trend_lookback_seconds:] = True
+            
+            # Apply the mask to force NaNs for the initial lookback period
+            ema_with_nans = np.where(mask, ema, np.nan)
+            
+            # Print comparison of SMA and EMA
+            print("\n🔍 Comparison of SMA and EMA after lookback period:")
+            comparison_df = pd.DataFrame({
+                'timestamp': df_rth_filled['timestamp'].iloc[trend_lookback_seconds:lookback_end],
+                'close': df_rth_filled['close'].iloc[trend_lookback_seconds:lookback_end],
+                'SMA': sma.iloc[trend_lookback_seconds:lookback_end],
+                'EMA': ema.iloc[trend_lookback_seconds:lookback_end],
+                'EMA_with_nans': ema_with_nans[trend_lookback_seconds:lookback_end]
+            })
+            print(comparison_df)
+        else:
+            print(f"\n⚠️ Not enough data to show rows after {trend_lookback_seconds} seconds lookback")
     
     return df_rth_filled
 
@@ -1839,6 +1903,43 @@ def run_backtest(params, data_loader, issue_tracker):
                         
                         # Skip this entry and continue to next signal
                         continue
+                    
+                    # TREND GATE: Check if the trade aligns with the trend
+                    if params['trend_filter_enabled']:
+                        # Get current price and trend_ma value at the reclaim timestamp
+                        current_row = df_rth_filled[df_rth_filled['ts_raw'] == entry_time]
+                        if not current_row.empty:
+                            current_price = current_row['close'].iloc[0]
+                            current_ma = current_row['trend_ma'].iloc[0]
+                            
+                            # Skip the trade if MA value is NaN (not enough history)
+                            if pd.isna(current_ma):
+                                trend_block_msg = f"Trend filter: Trade blocked at {entry_time.strftime('%H:%M:%S')} - Not enough MA history"
+                                if debug_mode:
+                                    print(f"⛔ {trend_block_msg}")
+                                issue_tracker["opportunities"]["trend_misaligned_block"] = issue_tracker["opportunities"].get("trend_misaligned_block", 0) + 1
+                                continue
+                            
+                            # Define buffer based on parameter
+                            buffer = params['trend_buffer_percent'] / 100  # Convert from percent to decimal
+                            
+                            # Check alignment based on trade direction
+                            is_aligned = True
+                            if entry_signal['stretch_label'] == 'below':  # CALL candidate (stretch-below)
+                                is_aligned = current_price > current_ma * (1 + buffer)
+                                if not is_aligned and debug_mode:
+                                    trend_block_msg = f"Trend filter: CALL blocked at {entry_time.strftime('%H:%M:%S')} - Price ${current_price:.2f} not > MA ${current_ma:.2f} × (1 + {buffer:.5f})"
+                                    print(f"⛔ {trend_block_msg}")
+                            elif entry_signal['stretch_label'] == 'above':  # PUT candidate (stretch-above)
+                                is_aligned = current_price < current_ma * (1 - buffer)
+                                if not is_aligned and debug_mode:
+                                    trend_block_msg = f"Trend filter: PUT blocked at {entry_time.strftime('%H:%M:%S')} - Price ${current_price:.2f} not < MA ${current_ma:.2f} × (1 - {buffer:.5f})"
+                                    print(f"⛔ {trend_block_msg}")
+                            
+                            # If not aligned, increment counter and skip this trade
+                            if not is_aligned:
+                                issue_tracker["opportunities"]["trend_misaligned_block"] = issue_tracker["opportunities"].get("trend_misaligned_block", 0) + 1
+                                continue
                     
                     entry_price = entry_signal['reclaim_price']
                     
