@@ -42,11 +42,11 @@ def initialize_parameters():
     return {
         # Backtest period
         'start_date': "2023-01-01",
-        'end_date': "2023-03-31",
+        'end_date': "2024-05-31",
         
         # Strategy parameters
-        'stretch_threshold': 0.001,  # 0.3%
-        'reclaim_threshold': 0.0007,  # 0.2% - should always be less than stretch threshold
+        'stretch_threshold': 0.003,  # 0.3%
+        'reclaim_threshold': 0.0018,  # 0.2% - should always be less than stretch threshold
         'cooldown_period_seconds': 120,  # Cooldown period in seconds
         
         # Time windows
@@ -54,10 +54,10 @@ def initialize_parameters():
         'entry_end_time': time(15, 45),
         
         # Trend filter parameters
-        'trend_filter_enabled': True,  # Whether to enable the trend filter
+        'trend_filter_enabled': False,  # Whether to enable the trend filter
         'trend_ma_type': "sma",         # Moving average type: "sma" or "ema"
         'trend_lookback_seconds': 300, # Lookback period in seconds (30 min)
-        'trend_buffer_percent': 0.1,   # Buffer percentage (0.05%)
+        'trend_buffer_percent': 0,   # Buffer percentage (0.05%)
         
         # Exit conditions
         'take_profit_percent': 100,     # Take profit at 25% gain
