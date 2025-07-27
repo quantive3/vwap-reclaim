@@ -2574,9 +2574,19 @@ if __name__ == "__main__":
             # Only include columns that exist
             existing_columns = [col for col in display_columns if col in contracts_df.columns]
             print(contracts_df[existing_columns].head(10))
-            # Also export the sample to CSV for easier review when in debug mode
-            contracts_df[existing_columns].head(20).to_csv("sample_trades.csv", index=False)
-            print("🔄 Sample of trades also written to sample_trades.csv")
+            
+        # Export all trades to CSV only when not in silent mode
+        if not PARAMS.get('silent_mode', False):
+            display_columns = ['original_signal_time', 'entry_time', 'option_type', 'strike_price', 
+                           'entry_option_price', 'entry_option_price_slipped',
+                           'original_exit_time', 'exit_time', 'exit_price', 'exit_price_slipped',
+                           'transaction_cost_total', 'pnl_dollars', 'pnl_dollars_with_fees', 'pnl_dollars_slipped_with_fees',
+                           'exit_reason', 'trade_duration_seconds']
+        
+            # Only include columns that exist
+            existing_columns = [col for col in display_columns if col in contracts_df.columns]
+            contracts_df[existing_columns].to_csv("all_trades.csv", index=False)
+            print("🔄 All trades written to all_trades.csv")
 
     # ==================== GENERATE SUMMARY REPORT ====================
     if not PARAMS.get('silent_mode', False):
