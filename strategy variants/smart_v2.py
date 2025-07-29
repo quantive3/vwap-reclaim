@@ -47,9 +47,9 @@ BACKTEST_END_DATE   = "2024-05-31"
 STUDY_NAME = "vwap_bounce_optimization_v2"
 
 # Configuration flags
-ENABLE_PERSISTENCE = False  # Set to True to accumulate trials across runs
+ENABLE_PERSISTENCE = True  # Set to True to accumulate trials across runs
 OPTIMIZATION_SEED = None     # Set to a number for reproducible results, or None for random
-N_TRIALS = 2  # Adjust based on your computational budget
+N_TRIALS = 150  # Adjust based on your computational budget
 
 # Database connection pool settings
 DB_POOL_SIZE    = 3   # Number of persistent connections to the Postgres DB

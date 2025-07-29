@@ -45,13 +45,13 @@ def initialize_parameters():
         'end_date': "2024-05-31",
         
         # Strategy parameters
-        'stretch_threshold': 0.003,  # 0.3%
-        'reclaim_threshold': 0.0018,  # 0.2% - should always be less than stretch threshold
+        'stretch_threshold': 0.001,  # 0.3%
+        'reclaim_threshold': 0.0007,  # 0.2% - should always be less than stretch threshold
         'cooldown_period_seconds': 120,  # Cooldown period in seconds
         
         # Time windows
         'entry_start_time': time(9, 30),
-        'entry_end_time': time(15, 45),
+        'entry_end_time': time(11, 00),
         
         # Trend filter parameters
         'trend_filter_enabled': False,  # Whether to enable the trend filter
@@ -60,7 +60,7 @@ def initialize_parameters():
         'trend_buffer_percent': 0,   # Buffer percentage (0.05%)
         
         # Exit conditions
-        'take_profit_percent': 100,     # Take profit at 25% gain
+        'take_profit_percent': 50,     # Take profit at 25% gain
         'stop_loss_percent': -25,      # Stop loss at 50% loss
         'max_trade_duration_seconds': 600,  # Exit after 300 seconds (5 minutes)
         'end_of_day_exit_time': time(15, 54),  # trade exit cutoff
