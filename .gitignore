@@ -13,3 +13,4 @@ backtest.prof
 *.zip
 /commit_archive
 .env
+*.pyc
