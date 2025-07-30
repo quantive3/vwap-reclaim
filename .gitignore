@@ -1,12 +1,7 @@
 .cursor/
-commit archive - before gh/
 polygon_cache/
 secret.py
 __pycache__/
-random_search_results.csv
-vwap_optimization_study.pkl
-opt_history.png
-sample_trades.csv
 /tests
 backtest.prof
 *.db
@@ -16,4 +11,5 @@ backtest.prof
 *.csv
 *.xlsx
 *.zip
-/commit_archive_before_gh
+/commit_archive
+.env
