@@ -35,33 +35,33 @@ def initialize_parameters():
         dict: Dictionary containing all strategy parameters
     """
     return {
+        # Print/info gates
+        'debug_mode': False,  # Enable/disable debug outputs. Significantly slows execution.
+        'silent_mode': False,  # Enable/disable all non-debug print outputs
+        'enable_profiling': False,  # Enable/disable cProfile profiling
+
         # Backtest period
         'start_date': "2023-01-01",
-        'end_date': "2024-05-31",
-        
-        # Strategy parameters
-        'stretch_threshold': 0.003,  # 0.3%
-        'reclaim_threshold': 0.0018,  # 0.2% - should always be less than stretch threshold
-        'cooldown_period_seconds': 120,  # Cooldown period in seconds
-        
+        'end_date': "2023-01-31",
+
         # Time windows
         'entry_start_time': time(9, 30),
         'entry_end_time': time(15, 45),
         
+        # Entry parameters
+        'stretch_threshold': 0.003,  # 0.3%
+        'reclaim_threshold': 0.0021,  # 0.2% - should always be less than stretch threshold
+        'cooldown_period_seconds': 120,  # Cooldown period in seconds
+        
         # Exit conditions
-        'take_profit_percent': 100,     # Take profit at 25% gain
+        'take_profit_percent': 80,     # Take profit at 25% gain
         'stop_loss_percent': -25,      # Stop loss at 50% loss
         'max_trade_duration_seconds': 600,  # Exit after 300 seconds (5 minutes)
+        'late_entry_cutoff_time': time(15, 54),  # No new entries after this time
         'end_of_day_exit_time': time(15, 54),  # trade exit cutoff
         'emergency_exit_time': time(15, 55),   # absolute failsafe exit (overrides all other logic)
         
-        # Risk management failsafes
-        'late_entry_cutoff_time': time(15, 54),  # No new entries after this time
-        
-        # Latency simulation
-        'latency_seconds': 1,    # Seconds delay between signal and execution (0 = disabled)
-        
-        # Instrument selection
+        # Option selection
         'ticker': 'SPY',
         'require_same_day_expiry': True,  # Whether to strictly require same-day expiry options
         'strikes_depth': 1,  # Number of strikes from ATM to target (1 = closest, 2 = second closest, etc.). Always use 1 or greater.
@@ -70,7 +70,9 @@ def initialize_parameters():
         # Position sizing
         'contracts_per_trade': 1,  # Number of contracts to trade per signal (for P&L calculations)
         
-        # Transaction costs
+        # Real-world trading friction
+        'slippage_amount': 0.02,   # fixed slippage per share
+        'latency_seconds': 1,    # Seconds delay between signal and execution (0 = disabled)
         'brokerage_fee_per_contract': 0.65,  # Brokerage fee per contract per direction (entry or exit)
         'exchange_fee_per_contract': 0.65,   # Exchange and other fees per contract per direction
         
@@ -81,16 +83,6 @@ def initialize_parameters():
         'timestamp_mismatch_threshold': 0,  # Maximum allowable timestamp mismatches
         'price_staleness_threshold_seconds': 10,  # Maximum allowable staleness in seconds for option prices
         'report_stale_prices': True,  # Enable/disable reporting of stale prices
-        
-        # Slippage settings
-        'slippage_amount': 0.02,   # fixed slippage per share
-        
-        # Debug settings
-        'debug_mode': False,  # Enable/disable debug outputs
-        
-        # Silent mode for grid searches
-        'silent_mode': False,  # Enable/disable all non-debug print outputs
-        'enable_profiling': False,  # Enable/disable cProfile profiling
     }
 
 def initialize_issue_tracker(params):
