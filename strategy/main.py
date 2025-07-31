@@ -36,13 +36,13 @@ def initialize_parameters():
     """
     return {
         # Print/info gates
-        'debug_mode': False,  # Enable/disable debug outputs. Significantly slows execution.
+        'debug_mode': True,  # Enable/disable debug outputs. Significantly slows execution.
         'silent_mode': False,  # Enable/disable all non-debug print outputs
         'enable_profiling': False,  # Enable/disable cProfile profiling
 
         # Backtest period
-        'start_date': "2023-01-01",
-        'end_date': "2023-01-31",
+        'start_date': "2023-01-04",
+        'end_date': "2023-01-04",
 
         # Time windows
         'entry_start_time': time(9, 30),
