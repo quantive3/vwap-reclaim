@@ -26,15 +26,16 @@ POSTGRES_URL = (
 )
 
 # Import the main strategy components
-from main import (
+from strategy.main import (
     initialize_parameters, 
     initialize_issue_tracker,
-    setup_cache_directories,
     DataLoader,
     run_backtest,
     API_KEY,
     CACHE_DIR
 )
+# Import data module functions
+from strategy.data import setup_cache_directories
 
 # Track all param‐combos we've already tried
 seen = set()
