@@ -1,4 +1,3 @@
-import pandas as pd
 from strategy.params import initialize_parameters
 
 PARAMS = initialize_parameters()
@@ -144,7 +143,7 @@ def print_performance_summary(contracts_df):
                         return_on_risk = expectancy / avg_risk * 100
                         print(f"\n📊 AVERAGE RETURN ON RISK: {return_on_risk:.2f}%")
                     else:
-                        print(f"\n📊 AVERAGE RETURN ON RISK: ∞% (no losing trades)")
+                        print("\n📊 AVERAGE RETURN ON RISK: ∞% (no losing trades)")
 
                 # Sharpe Ratio
                 daily_returns = valid_pnl_contracts.groupby(valid_pnl_contracts['entry_time'].dt.date)['pnl_dollars_slipped_with_fees'].sum()
