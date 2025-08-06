@@ -1,14 +1,13 @@
 import optuna
 import matplotlib.pyplot as plt
 from optuna.trial import TrialState
-from smart import ValidCountTPESampler
+from optimize.smart import ValidCountTPESampler, POSTGRES_URL
 from optuna.storages import RDBStorage
-from smart import POSTGRES_URL
 
 # Load the study from SQLite database
 storage = RDBStorage(url=POSTGRES_URL)
 study = optuna.load_study(
-    study_name="vwap_bounce_optimization_v2",
+    study_name="vwap_bounce_optimization_test",
     storage=storage,
 )
 
