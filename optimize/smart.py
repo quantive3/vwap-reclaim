@@ -30,22 +30,22 @@ from strategy.main import (
     initialize_parameters, 
     initialize_issue_tracker,
     DataLoader,
-    run_backtest,
     API_KEY,
     CACHE_DIR
 )
 # Import data module functions
 from strategy.data import setup_cache_directories
+from strategy.backtest import run_backtest
 
 # Track all param‐combos we've already tried
 seen = set()
 
 # Override backtest dates (edit these to change the backtest window)
 BACKTEST_START_DATE = "2023-01-01"
-BACKTEST_END_DATE   = "2024-05-31"
+BACKTEST_END_DATE   = "2023-01-31"
 
 # Name of the Optuna study (edit this to start a fresh study)
-STUDY_NAME = "vwap_bounce_optimization_v2"
+STUDY_NAME = "vwap_bounce_optimization_test"
 
 # Configuration flags
 ENABLE_PERSISTENCE = True  # Set to True to accumulate trials across runs
@@ -62,7 +62,7 @@ N_STARTUP_TRIALS = 250      # Number of random trials before TPE optimization st
 N_EI_CANDIDATES = 48       # Number of candidates evaluated per TPE trial
 
 # Pruning configuration
-MIN_TRADE_THRESHOLD = 170     # Minimum trades required for valid trial
+MIN_TRADE_THRESHOLD = 10     # Minimum trades required for valid trial
 MAX_ATTEMPT_LIMIT = 600      # Maximum total attempts (including pruned trials)
 
 # Entry windows mapping - used throughout the optimization
