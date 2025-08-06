@@ -6,3 +6,4 @@ filelock
 sqlalchemy
 psycopg2-binary
 matplotlib
+flake8
