@@ -497,7 +497,7 @@ def load_option_data(option_ticker, date, cache_dir, df_rth_filled, api_key, par
 
             # Track hash mismatches in debug mode
             if not hash_match:
-                hash_mismatch_msg = f"Hash mismatch between SPY and option data"
+                hash_mismatch_msg = "Hash mismatch between SPY and option data"
                 _track_issue_function("data_integrity", "hash_mismatches", hash_mismatch_msg, date=date)
         
         # Only print the debug information if debug mode is on
