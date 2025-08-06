@@ -3,7 +3,7 @@
 # It is a straight extraction and must remain behaviorally identical 
 # to the original implementation.
 import pandas as pd
-import numpy as np
+import numpy as np  # noqa: F401
 from datetime import time
 
 # Module-level placeholders for injected dependencies

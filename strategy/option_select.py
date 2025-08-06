@@ -2,8 +2,8 @@
 # This module contains the option selection logic extracted from main.py
 # It is a straight extraction and must remain behaviorally identical 
 # to the original implementation unless intentionally changed.
-import pandas as pd
-import numpy as np
+import pandas as pd  # noqa: F401
+import numpy as np  # noqa: F401
 
 # Module-level placeholders for injected dependencies
 _track_issue = None
@@ -76,11 +76,11 @@ def select_option_contract(entry_signal, df_chain, spy_price, params):
             else:
                 if params['debug_mode']:
                     if not params.get('silent_mode', False):
-                        print(f"ℹ️ Using non-same-day expiry options as fallback")
+                        print("ℹ️ Using non-same-day expiry options as fallback")
         else:
             if params['debug_mode']:
                 if not params.get('silent_mode', False):
-                    print(f"⚠️ Same-day expiry required but none available - skipping")
+                    print("⚠️ Same-day expiry required but none available - skipping")
             return None
     
     # Calculate absolute difference between each strike and current price for ATM selection
