@@ -1,8 +1,9 @@
 import optuna
 import matplotlib.pyplot as plt
 from optuna.trial import TrialState
-from optimize.smart import ValidCountTPESampler, POSTGRES_URL
+from optimize.smart import POSTGRES_URL
 from optuna.storages import RDBStorage
+from collections import defaultdict
 
 # Load the study from SQLite database
 storage = RDBStorage(url=POSTGRES_URL)
@@ -10,9 +11,6 @@ study = optuna.load_study(
     study_name="vwap_bounce_optimization_test",
     storage=storage,
 )
-
-from collections import defaultdict
-from optuna.trial import TrialState
 
 # Group only completed trials by their sorted param tuples
 param_groups = defaultdict(list)
