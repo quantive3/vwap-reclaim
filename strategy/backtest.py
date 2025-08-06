@@ -3,7 +3,7 @@
 # It is a straight extraction and must remain behaviorally identical 
 # to the original implementation.
 import pandas as pd
-import numpy as np
+import numpy as np  # noqa: F401
 from datetime import time
 
 # === STEP 7: Stretch Signal Detection ===
@@ -80,18 +80,18 @@ def run_backtest(params, data_loader, issue_tracker):
     start_date = params['start_date']
     end_date = params['end_date']
     business_days = pd.date_range(start=start_date, end=end_date, freq="B")
-    ticker = params['ticker']
+    ticker = params['ticker']  # noqa: F841
     
     # Import required functions
     from strategy.option_select import select_option_contract
-    from strategy.exits import (
+    from strategy.exits import (  # noqa: F401
         apply_latency,
         evaluate_exit_conditions,
         check_emergency_exit_time,
         process_emergency_exit,
         process_exits_for_contract
     )
-    from datetime import time
+    from datetime import time  # noqa: F401
     
     # Initialize tracking variables
     total_entry_intent_signals = 0
@@ -147,7 +147,7 @@ def run_backtest(params, data_loader, issue_tracker):
                 continue
 
             # Filter for valid entry signals
-            valid_entries = stretch_signals[stretch_signals['entry_intent'] == True]
+            valid_entries = stretch_signals[stretch_signals['entry_intent'] == True]  # noqa: E712
             
             # Track opportunity stats
             total_signals = len(stretch_signals)
@@ -181,7 +181,7 @@ def run_backtest(params, data_loader, issue_tracker):
                         # Skip this entry and continue to next signal
                         continue
                     
-                    entry_price = entry_signal['reclaim_price']
+                    entry_price = entry_signal['reclaim_price']  # noqa: F841
                     
                     # IMPORTANT: Store original signal time and SPY price at signal time (before latency)
                     original_signal_time = entry_time  # entry_time is reclaim_ts at this point
@@ -253,10 +253,10 @@ def run_backtest(params, data_loader, issue_tracker):
                                 
                                 if debug_mode:
                                     # Log look-ahead bias fix verification (after latency applied)
-                                    print(f"🔍 Look-ahead bias fix verification:")
+                                    print("🔍 Look-ahead bias fix verification:")
                                     print(f"   Signal time: {original_signal_time.strftime('%H:%M:%S')}, SPY price: ${spy_price_at_signal:.4f}")
                                     print(f"   Entry time:  {entry_time.strftime('%H:%M:%S')}, SPY price: ${spy_price_at_entry:.4f}")
-                                    print(f"   Using signal time price for option contract selection")
+                                    print("   Using signal time price for option contract selection")
                                     
                                     print(f"🕒 Entry latency applied: {latency_seconds}s")
                                     print(f"   Original signal: {original_signal_time.strftime('%H:%M:%S')}")
@@ -265,7 +265,7 @@ def run_backtest(params, data_loader, issue_tracker):
                                         # Now correctly comparing delayed price with original price
                                         print(f"   Price difference: ${latency_result['delayed_price'] - original_price:.4f}")
                                     else:
-                                        print(f"   Price difference: Unable to calculate - original price data not found")
+                                        print("   Price difference: Unable to calculate - original price data not found")  # noqa: F541
                             else:
                                 # If we can't find data at the delayed timestamp, skip this entry
                                 latency_error_msg = f"No option price data after applying entry latency of {latency_seconds}s from {original_signal_time}"
