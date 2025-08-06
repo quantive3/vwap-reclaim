@@ -1,17 +1,24 @@
 # === SMART GRID SEARCH FOR VWAP BOUNCE STRATEGY ===
-import optuna
-import pandas as pd
-from datetime import time
-import datetime   # added so eval() can resolve datetime.time
 import copy
-import sys
+from datetime import time
+import datetime  # noqa: F401
 import os
+
+import optuna
 from optuna.storages import RDBStorage
+from optuna.samplers import TPESampler
+from optuna.trial import TrialState
+
 import sqlalchemy
 from sqlalchemy.exc import IntegrityError
 
 # Import credentials from config file
 from config import PG_HOST, PG_PORT, PG_DATABASE, PG_USER, PG_PASSWORD
+
+# Import the main strategy components
+from strategy.main import initialize_parameters, initialize_issue_tracker, DataLoader, API_KEY, CACHE_DIR
+# Import data module functions
+from strategy.backtest import run_backtest
 
 # PostgreSQL connection info (still allows override via env vars)
 PG_HOST     = os.getenv("PG_HOST",     PG_HOST)
@@ -25,19 +32,7 @@ POSTGRES_URL = (
     f"@{PG_HOST}:{PG_PORT}/{PG_DATABASE}"
 )
 
-# Import the main strategy components
-from strategy.main import (
-    initialize_parameters, 
-    initialize_issue_tracker,
-    DataLoader,
-    API_KEY,
-    CACHE_DIR
-)
-# Import data module functions
-from strategy.data import setup_cache_directories
-from strategy.backtest import run_backtest
-
-# Track all param‐combos we've already tried
+# Track all param‐combos we’ve already tried
 seen = set()
 
 # Override backtest dates (edit these to change the backtest window)
@@ -73,12 +68,6 @@ ENTRY_WINDOWS = {
     3: (time(15, 0), time(15, 45)),   # 15:00 to 15:45
     4: (time(9, 30), time(15, 45))    # 9:30 to 15:45
 }
-
-from optuna.samplers import TPESampler
-from optuna.trial import TrialState
-
-# Global variable to store the SQLAlchemy engine
-db_engine = None
 
 def ensure_seen_combos_table(engine):
     """
@@ -215,7 +204,7 @@ def objective(trial):
     Returns:
         float: Average return on risk percentage (to be maximized)
     """
-    global seen, db_engine
+    global seen, db_engine # noqa: F824
     
     try:
         # Create optimized parameters for this trial
@@ -323,12 +312,12 @@ def run_optimization(n_trials=100, study_name=STUDY_NAME, max_attempts=None):
     """
     global db_engine
     
-    print(f"🚀 Starting VWAP Bounce Strategy Optimization")
-    print(f"📊 Target: Maximize Average Return on Risk")
+    print("🚀 Starting VWAP Reclaim Strategy Optimization")
+    print("📊 Target: Maximize Average Return on Risk")
     print(f"🔄 Target completed trials: {n_trials}")
     print(f"🚫 Maximum total attempts: {max_attempts or MAX_ATTEMPT_LIMIT}")
     print(f"📊 Minimum trades per trial: {MIN_TRADE_THRESHOLD}")
-    print(f"📈 Parameters: 9 dimensions")
+    print("📈 Parameters: 9 dimensions")
     print("-" * 50)
     
     # PostgreSQL-based Optuna storage using RDBStorage
@@ -432,7 +421,7 @@ def run_optimization(n_trials=100, study_name=STUDY_NAME, max_attempts=None):
             break
         
         # Run one more trial
-        remaining_attempts = attempt_limit - attempts_made
+        remaining_attempts = attempt_limit - attempts_made  # noqa: F841
         study.optimize(objective, n_trials=1, show_progress_bar=False)
         attempts_made += 1
         
@@ -454,7 +443,7 @@ def run_optimization(n_trials=100, study_name=STUDY_NAME, max_attempts=None):
         print(f"🎯 Successfully reached target of {n_trials} completed trials!")
     else:
         print(f"⚠️ Only found {len(completed_trials)} valid trials out of {attempts_made} attempts")
-        print(f"💡 Consider lowering MIN_TRADE_THRESHOLD or expanding parameter ranges")
+        print("💡 Consider lowering MIN_TRADE_THRESHOLD or expanding parameter ranges")
     
     return study
 
@@ -471,12 +460,12 @@ def print_optimization_results(study):
     
     # Best trial info
     best_trial = study.best_trial
-    print(f"\n🏆 BEST TRIAL:")
+    print("\n🏆 BEST TRIAL:")
     print(f"   Trial Number: {best_trial.number}")
     print(f"   Best Return on Risk: {best_trial.value:.2f}%")
     
     # Best parameters
-    print(f"\n⚙️ OPTIMAL PARAMETERS:")
+    print("\n⚙️ OPTIMAL PARAMETERS:")
     
     # Entry window mapping for display
     entry_window_names = {
@@ -505,7 +494,7 @@ def print_optimization_results(study):
     print(f"   Option Selection: {params['option_selection_mode'].upper()}")
     
     # Study statistics
-    print(f"\n📊 STUDY STATISTICS:")
+    print("\n📊 STUDY STATISTICS:")
     print(f"   Total Trials: {len(study.trials)}")
     print(f"   Completed Trials: {len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE])}")
     print(f"   Failed Trials: {len([t for t in study.trials if t.state == optuna.trial.TrialState.FAIL])}")
@@ -518,7 +507,7 @@ def print_optimization_results(study):
     print(f"   Duplicate Trials: {memory_dupes} (memory) + {db_dupes} (database)")
     
     # Top 5 trials
-    print(f"\n🏅 TOP 5 TRIALS:")
+    print("\n🏅 TOP 5 TRIALS:")
     sorted_trials = sorted(study.trials, key=lambda t: t.value if t.value is not None else -float('inf'), reverse=True)
     
     for i, trial in enumerate(sorted_trials[:5]):
@@ -573,7 +562,7 @@ def run_best_trial_detailed(study):
     # Create a mock detailed_results for compatibility
     detailed_results = {'metrics': metrics}
     
-    print(f"\n📈 DETAILED PERFORMANCE METRICS:")
+    print("\n📈 DETAILED PERFORMANCE METRICS:")
     for metric_name, metric_value in metrics.items():
         if metric_name not in ['error', 'duplicate', 'duplicate_source']:  # Skip non-metric attributes
             formatted_name = metric_name.replace('_', ' ').title()
@@ -612,6 +601,6 @@ if __name__ == "__main__":
     
     # No need to save study as it's already persisted in PostgreSQL
     print("\n💾 Study saved to PostgreSQL database")
-    print(f"💾 Parameter combinations stored in seen_combos table for future runs")
+    print("💾 Parameter combinations stored in seen_combos table for future runs")
     
     print("\n✅ Optimization complete!") 
