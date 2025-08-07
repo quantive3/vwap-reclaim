@@ -1,0 +1,65 @@
+==================== SUMMARY OF ERRORS + WARNINGS ====================
+
+📊 PROCESSING STATS:
+  - Days attempted: 1
+  - Days successfully processed: 1
+  - Days skipped due to errors: 0
+  - Days skipped due to warnings: 0
+
+🔍 DATA INTEGRITY:
+  - Hash mismatches: 0
+  - Timestamp mismatches: 0
+
+⚠️ WARNING SUMMARY:
+⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️
+  - No SPY Data: 0
+  - Price staleness: 0
+  - Short data warnings: 7
+  - Timestamp mismatches below threshold: 0
+  - Missing shares_per_contract: 0
+  - Non-standard contract size: 0
+  - VWAP fallbacks to close price: 0
+  - Emergency exit activations: 0
+  - Other warnings: 0
+
+❌ ERROR SUMMARY:
+  - Missing option price data: 0
+  - API connection failures: 0
+  - Missing exit data: 0
+  - No future price data: 0
+  - Forced exit at end of data: 0
+  - Exit evaluation error: 0
+  - Forced exit error: 0
+  - Latency entry failures: 0
+  - Latency exit failures: 0
+  - Other errors: 0
+
+🎯 OPPORTUNITY ANALYSIS:
+  - Total stretch signals: 107
+  - Valid entry opportunities: 7
+  - Failed entries due to data issues: 0
+  - Total options contracts selected: 7
+
+🛡️ RISK MANAGEMENT STATISTICS:
+  - Emergency exits triggered: 0
+  - Late entries blocked: 0
+  - Regular end-of-day exits: 0
+  - Total trades with defined exit reason: 7
+
+==================== END OF REPORT ====================
+
+==================== PERFORMANCE SUMMARY ====================
+
+💼 TOTAL TRADES: 7
+
+🎯 WIN RATE: 42.86%
+
+💡 EXPECTANCY: $-2.13 per trade
+
+💵 AVERAGE RISK PER TRADE: $49.47
+
+📊 AVERAGE RETURN ON RISK: -4.31%
+
+📈 SHARPE RATIO: N/A (need data from at least two days)
+
+==================== END OF PERFORMANCE SUMMARY ====================
