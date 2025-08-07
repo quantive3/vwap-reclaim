@@ -1,8 +1,8 @@
 # === Signal Detection Module ===
 import pandas as pd
 import numpy as np
-from datetime import time
-import hashlib
+from datetime import time  # noqa: F401
+import hashlib  # noqa: F401
 
 def detect_stretch_signal(df_rth_filled, params, debug_mode=False, silent_mode=False):
     """
@@ -143,7 +143,7 @@ def detect_partial_reclaims(df_rth_filled, stretch_signals, params, debug_mode=F
     for _, row in stretch_signals.iterrows():
         stretch_time = row['ts_raw']
         label = row['stretch_label']
-        vwap_at_stretch = row['vwap_running']
+        vwap_at_stretch = row['vwap_running']  # noqa: F841
 
         # Extract the reclaim window (up to 60 seconds ahead)
         reclaim_window = df_rth_filled[

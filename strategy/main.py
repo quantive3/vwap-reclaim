@@ -1,32 +1,16 @@
-# === STEP 1: Local Cache Setup ===
-import os
-
-# Create local cache directories
-CACHE_DIR = "./polygon_cache"  # Local cache directory
-
-# === STEP 2: API Key from Secret File ===
-try:
-    from config import API_KEY
-    API_KEY_LOADED_FROM_SECRET = True
-except ImportError:
-    # Fallback to manual input if secret.py is not available
-    API_KEY = input("🔑 Enter your Polygon API key (or create a secret.py file): ").strip()
-    API_KEY_LOADED_FROM_SECRET = False
-
-# === STEP 3: Imports and setup ===
+# === STEP 1: Standard Library Imports ===
+import os  # noqa: F401
 import pandas as pd
-# Set pandas option to use future behavior for fill operations
-pd.set_option('future.no_silent_downcasting', True)
-import requests
-from datetime import time
+import requests  # noqa: F401
+from datetime import time  # noqa: F401
 import hashlib
-import numpy as np
+import numpy as np  # noqa: F401
 import cProfile
 import pstats
+from filelock import FileLock  # noqa: F401
 
-from filelock import FileLock
+# === STEP 2: Strategy Module Imports ===
 from strategy.params import initialize_parameters, initialize_issue_tracker
-# Import data module functions
 from strategy.data import (
     setup_cache_directories,
     set_issue_tracker,
@@ -34,12 +18,9 @@ from strategy.data import (
     set_hash_generation_function
 )
 from strategy.data_loader import DataLoader
-# Import signal detection functions
-from strategy.signals import detect_stretch_signal as detect_stretch_signal_from_signals
-from strategy.signals import detect_partial_reclaims as detect_partial_reclaims_from_signals
-
-# Import exit-related functions
-from strategy.exits import (
+from strategy.signals import detect_stretch_signal as detect_stretch_signal_from_signals  # noqa: F401
+from strategy.signals import detect_partial_reclaims as detect_partial_reclaims_from_signals  # noqa: F401
+from strategy.exits import (  # noqa: F401
     apply_latency,
     evaluate_exit_conditions,
     check_emergency_exit_time,
@@ -48,6 +29,22 @@ from strategy.exits import (
     set_track_issue_function as set_exits_track_issue_function,
     set_issue_tracker as set_exits_issue_tracker
 )
+
+# === STEP 3: Local Cache Setup ===
+# Create local cache directories
+CACHE_DIR = "./polygon_cache"  # Local cache directory
+
+# === STEP 4: API Key from Secret File ===
+try:
+    from config import API_KEY
+    API_KEY_LOADED_FROM_SECRET = True
+except ImportError:
+    # Fallback to manual input if secret.py is not available
+    API_KEY = input("🔑 Enter your Polygon API key (or create a secret.py file): ").strip()
+    API_KEY_LOADED_FROM_SECRET = False
+
+# Set pandas option to use future behavior for fill operations
+pd.set_option('future.no_silent_downcasting', True)
 
 # Functions moved to params.py
 
@@ -95,7 +92,7 @@ def generate_dataframe_hash(df, name):
         try:
             df_sorted = df.sort_values(by=list(df.columns))
             df_str = df_sorted.to_string()
-        except:
+        except:  # noqa: E722
             # Fall back to unsorted string if sorting fails
             df_str = df.to_string()
     else:
@@ -170,13 +167,13 @@ business_days = pd.date_range(start=start_date, end=end_date, freq="B")
 ticker = PARAMS['ticker']
 
 # Import the extracted select_option_contract function and setup dependencies
-from strategy.option_select import select_option_contract, set_track_issue_function, set_debug_mode
+from strategy.option_select import select_option_contract, set_track_issue_function, set_debug_mode  # noqa: E402, F401
 # Inject dependencies
 set_track_issue_function(track_issue)
 set_debug_mode(DEBUG_MODE)
 
 # Import reporting functions to keep main.py lean
-from strategy.reporting import print_summary_report, print_performance_summary
+from strategy.reporting import print_summary_report, print_performance_summary  # noqa: E402
 
 # === STEP 4: Caching paths ===
 # CACHE_DIR is already defined in Step 1
@@ -202,7 +199,7 @@ if __name__ == "__main__":
     data_loader = DataLoader(API_KEY, CACHE_DIR, PARAMS, debug_mode=PARAMS['debug_mode'], silent_mode=PARAMS.get('silent_mode', False))
     
     # Import run_backtest from backtest module
-    from strategy.backtest import run_backtest
+    from strategy.backtest import run_backtest  # noqa: E402
     
     # === PROFILED BACKTEST ===
     if PARAMS.get('enable_profiling', False):
@@ -226,7 +223,7 @@ if __name__ == "__main__":
 
     # Debug: Show extracted metrics dictionary
     if PARAMS['debug_mode']:
-        print(f"\n🔍 DEBUG - EXTRACTED METRICS DICTIONARY:")
+        print("\n🔍 DEBUG - EXTRACTED METRICS DICTIONARY:")
         for key, value in metrics.items():
             if value is None:
                 print(f"  {key}: None")
@@ -294,9 +291,9 @@ if __name__ == "__main__":
             print(f"  Put options: {put_count} ({put_count/len(contracts_df)*100:.1f}%)")
         
         # Count by positioning
-        atm_count = len(contracts_df[contracts_df['is_atm'] == True])
-        itm_count = len(contracts_df[contracts_df['is_itm'] == True])
-        otm_count = len(contracts_df[(contracts_df['is_atm'] == False) & (contracts_df['is_itm'] == False)])
+        atm_count = len(contracts_df[contracts_df['is_atm'] == True])  # noqa: E712
+        itm_count = len(contracts_df[contracts_df['is_itm'] == True])  # noqa: E712
+        otm_count = len(contracts_df[(contracts_df['is_atm'] == False) & (contracts_df['is_itm'] == False)])  # noqa: E712
         
         if not PARAMS.get('silent_mode', False):
             print(f"  ATM contracts: {atm_count} ({atm_count/len(contracts_df)*100:.1f}%)")
@@ -324,7 +321,7 @@ if __name__ == "__main__":
         
         # Add price staleness statistics if enabled
         if PARAMS['report_stale_prices'] and 'is_price_stale' in contracts_df.columns:
-            stale_count = len(contracts_df[contracts_df['is_price_stale'] == True])
+            stale_count = len(contracts_df[contracts_df['is_price_stale'] == True])  # noqa: E712
             fresh_count = len(contracts_df) - stale_count
             avg_staleness = contracts_df['price_staleness_seconds'].mean()
             max_staleness = contracts_df['price_staleness_seconds'].max()
@@ -342,7 +339,7 @@ if __name__ == "__main__":
                 valid_exit_data = contracts_df.dropna(subset=['is_exit_price_stale', 'exit_price_staleness_seconds'])
                 
                 if not valid_exit_data.empty:
-                    exit_stale_count = len(valid_exit_data[valid_exit_data['is_exit_price_stale'] == True])
+                    exit_stale_count = len(valid_exit_data[valid_exit_data['is_exit_price_stale'] == True])  # noqa: E712
                     exit_fresh_count = len(valid_exit_data) - exit_stale_count
                     exit_avg_staleness = valid_exit_data['exit_price_staleness_seconds'].mean()
                     exit_max_staleness = valid_exit_data['exit_price_staleness_seconds'].max()
@@ -382,7 +379,7 @@ if __name__ == "__main__":
             
             # Report the missing P&L percentage
             if not PARAMS.get('silent_mode', False):
-                print(f"\n📊 P&L Data Completeness:")
+                print("\n📊 P&L Data Completeness:")
                 print(f"  Trades with P&L data: {trades_with_pnl}/{total_trades} ({100-missing_pnl_percent:.1f}%)")
                 print(f"  Trades missing P&L data: {trades_missing_pnl}/{total_trades} ({missing_pnl_percent:.1f}%)")
             
