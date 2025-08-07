@@ -7,3 +7,5 @@ sqlalchemy
 psycopg2-binary
 matplotlib
 flake8
+pytest
+pytest-cov
