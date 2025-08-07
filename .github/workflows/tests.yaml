@@ -31,16 +31,10 @@ jobs:
           pytest -q --cov=strategy --cov-report=term-missing --cov-report=xml
 
       - name: Generate coverage badge
-        if: always()
         run: |
-          if [ -f coverage.xml ]; then
-            coverage-badge -o coverage.svg -f
-          else
-            echo "coverage.xml not found; skipping badge generation"
-          fi
+          coverage-badge -o coverage.svg -f
 
       - name: Commit badge if changed
-        if: ${{ always() && hashFiles('coverage.svg') != '' }}
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "chore: update coverage badge [skip ci]"
