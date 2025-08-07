@@ -2,7 +2,6 @@
 polygon_cache/
 secret.py
 __pycache__/
-/tests
 backtest.prof
 *.db
 *.png
@@ -15,3 +14,5 @@ backtest.prof
 .env
 *.pyc
 /strategy_variants
+.coverage
+htmlcov/

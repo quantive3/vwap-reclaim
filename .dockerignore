@@ -16,7 +16,6 @@ polygon_cache/
 
 # Exclude development/testing artifacts
 *.prof
-tests/
 .cursor/
 commit_archive_before_gh/
 
@@ -25,3 +24,5 @@ commit_archive_before_gh/
 *.xlsx
 *.csv
 optuna-pg_backup.zip 
+.coverage
+htmlcov/
