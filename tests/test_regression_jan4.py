@@ -1,12 +1,19 @@
 import runpy
 import os
+import shutil
 from pathlib import Path
 from datetime import time
 import strategy.params as params_module
 
-def test_jan4_regression(capsys, monkeypatch):
+def test_jan4_regression(capsys, monkeypatch, tmp_path):
     # 1) Ensure we never get prompted for an API key
     monkeypatch.setenv("API_KEY", "DUMMY")
+
+    # Point the runtime to use our synthetic cache by running from a temp CWD
+    synthetic = Path(__file__).parent / "synthetic_cache"
+    dest = tmp_path / "polygon_cache"
+    shutil.copytree(synthetic, dest)
+    monkeypatch.chdir(tmp_path)
 
     # 2) Completely override initialize_parameters() with the exact dict we want
     def fake_init():
