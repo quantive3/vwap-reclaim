@@ -6,8 +6,13 @@ from datetime import time
 import strategy.params as params_module
 
 def test_jan35_regression(capsys, monkeypatch, tmp_path):
-    # 1) Ensure we never get prompted for an API key
+    # 1) Ensure we never get prompted for credentials in CI
     monkeypatch.setenv("API_KEY", "DUMMY")
+    monkeypatch.setenv("PG_HOST", "DUMMY")
+    monkeypatch.setenv("PG_PORT", "5432")
+    monkeypatch.setenv("PG_DATABASE", "DUMMY")
+    monkeypatch.setenv("PG_USER", "DUMMY")
+    monkeypatch.setenv("PG_PASSWORD", "DUMMY")
 
     # Point the runtime to use our synthetic cache by running from a temp CWD
     synthetic = Path(__file__).parent / "synthetic_cache"
