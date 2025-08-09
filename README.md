@@ -1,3 +1,3 @@
-[![Lint](https://github.com/shawnjoshi/vwap-reclaim/actions/workflows/lint.yml/badge.svg)](https://github.com/shawnjoshi/vwap-reclaim/actions/workflows/lint.yml) ![Coverage](coverage.svg) ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
+[![Lint](https://github.com/shawnjoshi/vwap-reclaim/actions/workflows/lint.yml/badge.svg)](https://github.com/shawnjoshi/vwap-reclaim/actions/workflows/lint.yml) ![Coverage](coverage.svg) ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg) [![Docker Pulls](https://img.shields.io/docker/pulls/quantive/vwap_reclaim.svg)](https://hub.docker.com/r/quantive/vwap_reclaim) [![Image Size](https://img.shields.io/docker/image-size/quantive/vwap_reclaim/latest)](https://hub.docker.com/r/quantive/vwap_reclaim/tags)
 
 Placeholder
