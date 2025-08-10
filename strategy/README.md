@@ -75,6 +75,6 @@ It enforces:
 python -m strategy.main
 ```
 
-Provide `API_KEY` in `config.py` or via env var when not using synthetic data. For a zero-dependency run, see `../quickstart/README.md`.
+Provide `API_KEY` in `config.py` or via env var when not using synthetic data. For a zero-dependency run, see [quickstart/README.md](quickstart/).
 
 

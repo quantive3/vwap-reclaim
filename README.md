@@ -1,34 +1,18 @@
 [![Lint](https://github.com/shawnjoshi/vwap-reclaim/actions/workflows/lint.yml/badge.svg)](https://github.com/shawnjoshi/vwap-reclaim/actions/workflows/lint.yml) ![Coverage](coverage.svg) [![Docker Pulls](https://img.shields.io/docker/pulls/quantive/vwap_reclaim.svg)](https://hub.docker.com/r/quantive/vwap_reclaim) [![Image Size](https://img.shields.io/docker/image-size/quantive/vwap_reclaim/latest)](https://hub.docker.com/r/quantive/vwap_reclaim/tags) ![License: MIT](https://img.shields.io/badge/License-MIT-purple.svg)
 
-### VWAP Reclaim Strategy (SPY Options)
+# VWAP Reclaim Strategy (SPY Options)
 
-Concise, single-shot intraday strategy that buys short-dated SPY options on structured VWAP stretch-and-reclaim signals. Fully cacheable, sweep-ready, and designed for reproducible backtests and optimization.
+Single-shot intraday strategy that buys 0DTE SPY options on structured VWAP stretch-and-reclaim signals. 
 
-### Quickstart (no API required)
-
-Run with bundled synthetic data in minutes.
-
-```powershell
-# From repo root on Windows PowerShell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-
-python quickstart/run_strategy.py
-```
-
-What this does:
-- Copies synthetic data into `polygon_cache/`
-- Sets dummy credentials to avoid prompts
-- Runs the strategy across Jan 3–5, 2023 using fixed params
+Fully cacheable, sweep-ready, and designed for reproducible backtests and optimization.
 
 ### Folder guide
 
 | Path | What’s inside |
 |---|---|
-| `strategy/` | Core logic: parameters, data loading, signals, option selection, exits, backtest, reporting. See `strategy/README.md`. |
-| `optimize/` | Optuna-powered parameter search with Postgres persistence (focus: `smart.py`). See `optimize/README.md`. |
-| `quickstart/` | One-command run with bundled synthetic data. See `quickstart/README.md`. |
+| `strategy/` | Core logic: parameters, data loading, signals, option selection, exits, backtest, reporting. See [strategy/README.md](strategy/). |
+| `optimize/` | Parameter sweeps with Optuna and Postgres-backed storage. Prunes low-trade trials, deduplicates param combos, and reports best trials. See [optimize/README.md](optimize/). |
+| `quickstart/` | One-command run with bundled synthetic data. See [quickstart/README.md](quickstart/). |
 | `tests/` | Basic correctness and regression tests against synthetic cache. |
 
 ### Run with your own Polygon API key
@@ -65,23 +49,4 @@ Key parameters (subset):
 | `stop_loss_percent` | `-25` | Exit on loss. |
 | `max_trade_duration_seconds` | `600` | Time-based exit. |
 
-Full details in `strategy/README.md`.
-
-### Optimization (optional)
-
-Reproducible parameter search with Optuna and Postgres-backed storage. Prunes low-trade trials, deduplicates param combos, and reports best trials.
-
-```powershell
-python -m optimize.smart
-```
-
-See `optimize/README.md` for setup and tips.
-
-### Docker
-
-An example `Dockerfile` is provided for containerized runs. Pull the prebuilt image or build locally.
-
-### License
-
-MIT
-
+Full details in [strategy/README.md](strategy/).
