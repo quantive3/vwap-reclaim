@@ -41,6 +41,6 @@ What this script does:
 - Missing cache files: the script will list missing paths and stop. Ensure `quickstart/synthetic_data/spy/` and `chain/` are present for the selected dates.
 - Modified working directory: the script `chdir`s to repo root to ensure imports work.
 
-For full strategy details, see [strategy/README.md](strategy/).
+For full strategy details, see [strategy/README.md](../strategy/).
 
 
