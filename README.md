@@ -1,40 +1,24 @@
-[![Lint](https://github.com/shawnjoshi/vwap-reclaim/actions/workflows/lint.yml/badge.svg)](https://github.com/shawnjoshi/vwap-reclaim/actions/workflows/lint.yml) ![Coverage](coverage.svg) [![Docker Pulls](https://img.shields.io/docker/pulls/quantive/vwap_reclaim.svg)](https://hub.docker.com/r/quantive/vwap_reclaim) [![Image Size](https://img.shields.io/docker/image-size/quantive/vwap_reclaim/latest)](https://hub.docker.com/r/quantive/vwap_reclaim/tags) ![License: MIT](https://img.shields.io/badge/License-MIT-purple.svg)
+[![Lint](https://github.com/shawnjoshi/vwap-reclaim/actions/workflows/lint.yml/badge.svg)](https://github.com/shawnjoshi/vwap-reclaim/actions/workflows/lint.yml) ![Coverage](coverage.svg) [![Image Size](https://img.shields.io/docker/image-size/quantive/vwap_reclaim/latest)](https://hub.docker.com/r/quantive/vwap_reclaim/tags) ![License: MIT](https://img.shields.io/badge/License-MIT-purple.svg)
 
-# VWAP Reclaim Strategy (SPY Options)
+# VWAP Reclaim Lab
 
-Single-shot intraday strategy that buys 0DTE SPY options on structured VWAP stretch-and-reclaim signals. 
+## Introduction
+
+An intraday options backtesting framework built around VWAP stretch-and-reclaim entries. Built with clean boundaries for data, signals, option selection, exits, and reporting.
+
+Includes simulation for contract scaling and real-world trading friction (latency, slippage, fees).
 
 Fully cacheable, sweep-ready, and designed for reproducible backtests and optimization.
 
-### Folder guide
+## Strategy at a Glance
 
-| Path | What’s inside |
-|---|---|
-| `strategy/` | Core logic: parameters, data loading, signals, option selection, exits, backtest, reporting. See [strategy/README.md](strategy/). |
-| `optimize/` | Parameter sweeps with Optuna and Postgres-backed storage. Prunes low-trade trials, deduplicates param combos, and reports best trials. See [optimize/README.md](optimize/). |
-| `quickstart/` | One-command run with bundled synthetic data. See [quickstart/README.md](quickstart/). |
-| `tests/` | Basic correctness and regression tests against synthetic cache. |
+**Signals:** Detects VWAP stretch beyond a threshold, then a partial reclaim within a specified window.
 
-### Run with your own Polygon API key
+**Option Selection:** Sweepable parameters for ITM/ATM/OTM and strike depth. Buys calls and puts based on stretch/reclaim direction. Same-day expiry enforced by default.
 
-1) Provide `API_KEY` in `config.py` or as environment variable.
-2) Populate `polygon_cache/` (the strategy will cache API pulls automatically).
-3) Execute:
+**Exits:** Take-profit, stop-loss, max-duration, end-of-day, and an emergency failsafe exits.
 
-```powershell
-python -m strategy.main
-```
-
-Notes:
-- Data are aligned to 1-second resolution and validated. Missing/misaligned data hard-fail with clear logs.
-- Strategy only buys options (no selling). Option selection happens exactly at the signal timestamp to prevent look-ahead.
-
-### Strategy at a glance
-
-- Entry: Detects VWAP stretch beyond a threshold, then a partial reclaim within a cooldown window.
-- Direction: Below VWAP → buy call; Above VWAP → buy put. Same-day expiry enforced by default.
-- Exits: Take-profit, stop-loss, max-duration, end-of-day, and an emergency failsafe time.
-- Frictions: Latency, slippage, commissions/fees.
+**Trading Friction:** Latency, slippage, commissions/fees.
 
 Key parameters (subset):
 
@@ -50,3 +34,22 @@ Key parameters (subset):
 | `max_trade_duration_seconds` | `600` | Time-based exit. |
 
 Full details in [strategy/README.md](strategy/).
+
+## Folder Guide
+
+| Path | What’s inside |
+|---|---|
+| `strategy/` | Core logic: parameters, data loading, signals, option selection, exits, backtest, reporting. See [strategy/README.md](strategy/). |
+| `optimize/` | Parameter sweeps with Optuna and Postgres-backed storage. Prunes low-trade trials, deduplicates param combos, and reports best trials. See [optimize/README.md](optimize/). |
+| `quickstart/` | One-command run with bundled synthetic data. See [quickstart/README.md](quickstart/). |
+| `tests/` | Basic correctness and regression tests against synthetic cache. |
+
+## Key Dependencies
+
+| Dependency | Description |
+|---|---|
+| Python | Runtime for the backtester and optimizer; install packages via `requirements.txt`. |
+| Polygon.io API key | Stocks and Options Developer plans (or higher) are required to pull historical data at one second aggregates. **Note:** Synthetic data has been provided in the quickstart/ section  |
+| Optuna | Beysian optimization engine used by `optimize/smart.py` to sweep parameters. |
+| PostgreSQL | Persists Optuna studies and deduplicates parameter combos; configure `PG_*` env vars. Used for large-scale paramater sweeps. |
+| Docker | Reproducible environment and fast builds for virtual/ephemeral compute. |
