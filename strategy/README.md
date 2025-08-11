@@ -1,80 +1,89 @@
-### Strategy
+# Strategy
 
-Clear, modular VWAP stretch-and-reclaim strategy for intraday SPY options. Stateless by design, parameter-driven, and backtest-ready.
+[Module Breakdown](#module-breakdown) | [Parameter Guide](#parameter-guide) | [Data Integrity & Auditability](#data-integrity-and-auditability) | [Run It](#run-it)
 
-### What it does
+This backtesting framework is built around a modular VWAP stretch-and-reclaim strategy.
 
-- Detects when SPY stretches away from VWAP by a configurable threshold, then partially reclaims toward VWAP within a cooldown window.
-- On a valid reclaim:
-  - Below VWAP → buy a call
-  - Above VWAP → buy a put
-- Option contract is selected at the exact signal timestamp to avoid look-ahead bias, using same-day expiry by default.
-- Exits via take-profit, stop-loss, max-duration, end-of-day cutoff, and an emergency failsafe time.
+It specifically focuses on trading same-day expiry (0DTE) options for SPY.
 
-### Key modules
+## What It Does
+
+1. Detects when SPY stretches away from VWAP, then partially reclaims towards it within a specified window.
+
+2. On a valid reclaim:
+
+- Price below VWAP → Buy a call
+- Price above VWAP → Buy a put
+
+3. Option contract is selected at the exact signal timestamp to avoid look-ahead bias.
+
+4. Exits via take-profit, stop-loss, max-duration, end-of-day cutoff, and an emergency failsafe time.
+
+5. Simulates trade frictions: latency, slippage, fees.
+
+
+## Module Breakdown
 
 | File | Purpose |
 |---|---|
 | `params.py` | Centralized parameters and issue-tracker initialization. |
-| `data.py` | SPY, chain, and option loaders with caching and 1-second alignment; data validation/hard-fail. |
+| `data.py` | Underlying, chain, and option loaders with caching and alignment. |
 | `data_loader.py` | Thin wrapper class bundling the `data.py` loaders. |
 | `signals.py` | Stretch and partial reclaim detection with cooldown and time-window filtering. |
-| `option_select.py` | Contract picking (`itm`/`otm`/`atm`, `strikes_depth`) at signal time only. |
+| `option_select.py` | Contract selection (`itm`/`otm`/`atm`, `strikes_depth`) at signal time. |
 | `exits.py` | Exit rules, emergency failsafe, latency application, stale-price handling. |
 | `backtest.py` | Single entry point `run_backtest(...)` orchestrates the full loop and returns metrics/logs. |
-| `reporting.py` | Human-readable summaries. |
-| `main.py` | Script entry for running a backtest with params from `params.py`. |
+| `reporting.py` | Readable test summaries. |
+| `main.py` | Script entry for running a backtest with parameters from `params.py`. |
 
-### Parameters (selected)
+
+## Parameter Guide
 
 All behavior is controlled via `initialize_parameters()` in `params.py`.
 
-| Name | Type | Example | Notes |
-|---|---|---|---|
-| `start_date`, `end_date` | str | `"2023-01-03"` | Backtest date range (business days). |
-| `entry_start_time`, `entry_end_time` | time | `09:30`–`15:45` | Only consider signals within this window. |
-| `stretch_threshold` | float | `0.003` | Stretch beyond VWAP required to mark a signal. |
-| `reclaim_threshold` | float | `0.0021` | Reclaim back toward VWAP required for entry intent. |
-| `cooldown_period_seconds` | int | `120` | Throttle multiple signals per side. |
-| `option_selection_mode` | str | `itm` | One of `itm`/`otm`/`atm`. |
-| `strikes_depth` | int | `1` | Depth from ATM within chosen mode. |
-| `contracts_per_trade` | int | `1` | Position size in contracts. |
-| `take_profit_percent` | int | `80` | Exit on profit. |
-| `stop_loss_percent` | int | `-25` | Exit on loss. |
-| `max_trade_duration_seconds` | int | `600` | Time-based exit. |
-| `late_entry_cutoff_time` | time | `15:54` | Blocks new entries late in session. |
-| `end_of_day_exit_time` | time | `15:54` | Regular EOD exit. |
-| `emergency_exit_time` | time | `15:55` | Failsafe exit, overrides all else. |
-| `slippage_amount` | float | `0.02` | Fixed per-share slippage model. |
-| `latency_seconds` | int | `1` | Entry latency after signal. |
-| `brokerage_fee_per_contract` | float | `0.65` | One-way commission. |
-| `exchange_fee_per_contract` | float | `0.65` | One-way exchange fee. |
+| Name | Example | Notes |
+|---|---|---|
+| `start_date`, `end_date` | `2025-01-01` - `2025-01-31` | Backtest date range (business days). |
+| `entry_start_time`, `entry_end_time` | `09:30` - `13:00` | Only consider signals within this window. |
+| `stretch_threshold` | `0.003` | Stretch beyond VWAP required to mark a signal. |
+| `reclaim_threshold` | `0.0021` | Reclaim back toward VWAP required for entry intent. |
+| `cooldown_period_seconds` | `120` | Throttle multiple signals per side. |
+| `option_selection_mode` | `itm` | One of `itm`/`otm`/`atm`. |
+| `strikes_depth` | `1` | Depth from ATM within chosen mode. |
+| `contracts_per_trade` | `1` | Position size in contracts. |
+| `take_profit_percent` | `80` | Exit on profit. |
+| `stop_loss_percent` | `-25` | Exit on loss. |
+| `max_trade_duration_seconds` | `600` | Time-based exit. |
+| `late_entry_cutoff_time` | `15:30` | Blocks new entries late in session. |
+| `end_of_day_exit_time` | `15:45` | Regular EOD exit. |
+| `emergency_exit_time` | `15:55` | Failsafe exit, overrides all else. |
+| `slippage_amount` | `0.02` | Fixed per-share slippage model. |
+| `latency_seconds` | `1` | Entry latency after signal. |
+| `brokerage_fee_per_contract` | `0.65` | One-way commission. |
+| `exchange_fee_per_contract` | `0.65` | One-way exchange fee (bundled). |
 
-Data quality thresholds (warnings or hard-fail depending on context) are also in `params.py`, e.g., `min_spy_data_rows`, `timestamp_mismatch_threshold`, `price_staleness_threshold_seconds`.
+Data quality thresholds are also in `params.py` (e.g. `min_spy_data_rows`, `timestamp_mismatch_threshold`, `price_staleness_threshold_seconds`).
 
-### Single entry point
 
-The backtest runs through the single function:
+## Data Integrity and Auditability
 
-```python
-from strategy.backtest import run_backtest
+There is significant emphasis on ensuring data is aligned and reproducible.
 
-results = run_backtest(params, data_loader, issue_tracker)
-# returns dict with: trades (via all_contracts), log (issue_tracker), stats (metrics)
-```
+**Aligned Dataframes:** Underlying and option prices are aligned on a 1-second grid. Misalignments are detected, reported, and can be set to block entries.
 
-It enforces:
-- 1-second alignment across SPY, VWAP, and options
-- Option selection at signal time
-- No entries after `late_entry_cutoff_time`
-- Hard-fail on missing or misaligned data
+**Option Price Freshness:** Each option price carries “seconds since last update” column. Stale quotes are flagged so you can analyze or filter them later.
 
-### Run directly
+**Deterministic Caching:** Data pulls are cached locally and guarded with file locks so reruns are reproducible and race-free.
+
+**Reproducibility:** Optional dataframe hashes help confirm that inputs and alignments haven’t changed between runs.
+
+**Run Summaries:** A structured issue tracker aggregates warnings/errors (e.g., stale prices, missing rows, late entries, emergency exits) into a concise end-of-run report.
+
+
+## Run It
 
 ```bash
 python -m strategy.main
 ```
 
 Provide `API_KEY` in `config.py` or via env var when not using synthetic data. For a zero-dependency run, see [quickstart/README.md](../quickstart/).
-
-

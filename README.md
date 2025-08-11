@@ -12,7 +12,7 @@ Includes simulations for contract scaling and real-world friction (latency, slip
 
 Fully cacheable, sweep-ready, and designed for reproducible backtests and optimization.
 
-(With an obnoxious amount of prints in in `debug_mode`.)
+(With an obnoxious amount of prints for data integrity and auditability.)
 
 
 ## Features at a Glance
