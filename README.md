@@ -2,31 +2,38 @@
 
 # VWAP Reclaim Lab
 
+[Features at a Glance](#features-at-a-glance) | [Folder Guide](#folder-guide) | [Key Tech](#key-tech)
+
 ## Introduction
 
-An intraday options backtesting framework built around VWAP stretch-and-reclaim entries. Built with clean boundaries for data, signals, option selection, exits, and reporting.
+An intraday options backtesting framework - built around VWAP stretch-and-reclaim signals. Built with clean boundaries for data, signals, option selection, exits, and reporting.
 
-Includes simulation for contract scaling and real-world trading friction (latency, slippage, fees).
+Includes simulations for contract scaling and real-world friction (latency, slippage, fees).
 
 Fully cacheable, sweep-ready, and designed for reproducible backtests and optimization.
 
-## Strategy at a Glance
+(With an obnoxious amount of prints in in `debug_mode`.)
 
-**Signals:** Detects VWAP stretch beyond a threshold, then a partial reclaim within a specified window.
 
-**Option Selection:** Sweepable parameters for ITM/ATM/OTM and strike depth. Buys calls and puts based on stretch/reclaim direction. Same-day expiry enforced by default.
+## Features at a Glance
 
-**Exits:** Take-profit, stop-loss, max-duration, end-of-day, and an emergency failsafe exits.
+**Signals:** Detects a stretch away from VWAP beyond a threshold - and a partial reclaim towards it. The stretch-and-reclaim movement must occur in a specific window.
+
+**Option Selection:** Sweepable parameters for ITM/ATM/OTM and strike depth. Buys calls and puts based on stretch direction. Same-day expiry enforced by default.
+
+**Exits:** Take-profit, stop-loss, max hold duration, end-of-day, and emergency failsafe exits.
 
 **Trading Friction:** Latency, slippage, commissions/fees.
 
-Key parameters (subset):
+**Bayesian Optimizer:** `optimize/smart.py` utilizes Optuna for parameter sweeps over a discrete search space. Built for concurrency and parallelism.
+
+### Key Parameters (Subset):
 
 | Parameter | Example | Description |
 |---|---|---|
-| `stretch_threshold` | `0.003` | Min percent move away from VWAP to mark stretch. |
-| `reclaim_threshold` | `0.0021` | Percent move back toward VWAP to consider reclaim. |
-| `cooldown_period_seconds` | `120` | Throttle multiple signals per side. |
+| `stretch_threshold` | `0.003` | Min percent move away from VWAP. |
+| `reclaim_threshold` | `0.0021` | Percent move back toward VWAP (after initial stretch). |
+| `cooldown_period_seconds` | `120` | Throttle multiple signals per stretch event. |
 | `option_selection_mode` | `itm` | `itm`/`otm`/`atm` selection. |
 | `strikes_depth` | `1` | 1 = closest depth to ATM within the chosen mode. |
 | `take_profit_percent` | `80` | Exit on gain. |
@@ -35,21 +42,25 @@ Key parameters (subset):
 
 Full details in [strategy/README.md](strategy/).
 
+
 ## Folder Guide
 
-| Path | What’s inside |
+| Path | What’s Inside |
 |---|---|
 | `strategy/` | Core logic: parameters, data loading, signals, option selection, exits, backtest, reporting. See [strategy/README.md](strategy/). |
 | `optimize/` | Parameter sweeps with Optuna and Postgres-backed storage. Prunes low-trade trials, deduplicates param combos, and reports best trials. See [optimize/README.md](optimize/). |
 | `quickstart/` | One-command run with bundled synthetic data. See [quickstart/README.md](quickstart/). |
-| `tests/` | Basic correctness and regression tests against synthetic cache. |
+| `tests/` | Basic correctness and regression tests against synthetic data. |
 
-## Key Dependencies
+**NOTE:** Synthetic data is used in `quickstart/` and `tests/` to adhere to Polygon's terms.
 
-| Dependency | Description |
+
+## Key Tech
+
+| Tech | Description/Utilization |
 |---|---|
-| Python | Runtime for the backtester and optimizer; install packages via `requirements.txt`. |
-| Polygon.io API key | Stocks and Options Developer plans (or higher) are required to pull historical data at one second aggregates. **Note:** Synthetic data has been provided in the quickstart/ section  |
-| Optuna | Beysian optimization engine used by `optimize/smart.py` to sweep parameters. |
-| PostgreSQL | Persists Optuna studies and deduplicates parameter combos; configure `PG_*` env vars. Used for large-scale paramater sweeps. |
+| Python | Install packages via `requirements.txt`. |
+| Polygon.io API | Stocks and Options Developer plans (or higher) are required to pull historical data at one second aggregates.  |
+| Optuna | Bayesian optimization engine used by `optimize/smart.py` to sweep parameters. |
+| PostgreSQL | Persists Optuna studies and deduplicates parameter combos; configure `PG_*` env vars. Useful for parallel and/or multi-run parameter sweeps. |
 | Docker | Reproducible environment and fast builds for virtual/ephemeral compute. |
