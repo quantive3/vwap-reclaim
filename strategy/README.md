@@ -79,6 +79,10 @@ There is significant emphasis on ensuring data is aligned and reproducible.
 
 **Run Summaries:** A structured issue tracker aggregates warnings/errors (e.g., stale prices, missing rows, late entries, emergency exits) into a concise end-of-run report.
 
+**Debug + Silent Modes:** Prints are controlled via `debug_mode` and `silent_mode` in `params.py`. Enable `debug_mode` for step-level diagnostics, hashing, and more. Use `silent_mode` for optimization runs to suppress all remaining prints.
+
+*Note: `debug_mode` significantly increases time-to-completion for backtests. It's only recommended for short date ranges.*
+
 
 ## Run It
 
