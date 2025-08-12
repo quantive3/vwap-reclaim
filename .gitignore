@@ -16,3 +16,4 @@ backtest.prof
 /strategy_variants
 .coverage
 htmlcov/
+!optimize/artifacts/db_opt_history.png

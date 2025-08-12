@@ -19,7 +19,7 @@ POSTGRES_URL = (
     f"@{PG_HOST}:{PG_PORT}/{PG_DATABASE}"
 )
 
-def export_top_trials_to_csv(study_name="vwap_bounce_optimization_v2", top_n=250, output_file="top_trials.csv"):
+def export_top_trials_to_csv(study_name="vwap_bounce_optimization_test", top_n=250, output_file="top_trials.csv"):
     """
     Export the top N trials from an Optuna study to a CSV file.
     

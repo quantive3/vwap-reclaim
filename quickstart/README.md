@@ -28,7 +28,7 @@ For full strategy details, see [strategy/README.md](../strategy/).
 
 ## Using Docker
 
-You do not need this repository locally. Pull the prebuilt image and run it.
+Pull the following image and run it.
 
 ### Pull
 
