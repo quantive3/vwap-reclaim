@@ -55,15 +55,15 @@ python -m optimize.smart
 
 ### Optimization History
 
-Maps objective (return on risk) over completed trials:
+Shows the objective value (return on risk) plotted against the sequence of completed trials:
 
 ![Optimization History](artifacts/db_opt_history.png)
 
 ### Top Trials 
 
-Top completed trials with parameters and stored metrics (as user attributes).
+Top completed trials, sorted from best to worst objective.
 
-Sorted from best to worst objective result.
+Includes parameters and stored metrics (as user attributes).
 
 |   rank |   trial_number |   objective_value |   param_entry_window |   param_reclaim_percentage |   param_stretch_threshold |   param_stop_loss_percent |   param_strikes_depth | param_option_selection_mode   |   param_take_profit_percent |   param_cooldown_period_seconds |   param_max_trade_duration_seconds |   attr_avg_risk_per_trade |   attr_expectancy |   attr_win_rate |   attr_sharpe_ratio |   attr_return_on_risk_percent |   attr_total_trades |
 |-------:|---------------:|------------------:|---------------------:|---------------------------:|--------------------------:|--------------------------:|----------------------:|:------------------------------|----------------------------:|--------------------------------:|-----------------------------------:|--------------------------:|------------------:|----------------:|--------------------:|------------------------------:|--------------------:|
@@ -77,11 +77,3 @@ Sorted from best to worst objective result.
 |      8 |            128 |          10.0207  |                    0 |                        0.4 |                     0.003 |                       -60 |                     1 | itm                           |                          60 |                             600 |                                180 |                  106.67   |          10.689   |         45      |            0.292536 |                      10.0207  |                  20 |
 |      9 |             19 |           9.47377 |                    2 |                        0.6 |                     0.003 |                       -25 |                     1 | itm                           |                          25 |                             120 |                                120 |                   33.2209 |           3.14727 |         36.3636 |            0.144901 |                       9.47377 |                  11 |
 |     10 |             32 |           8.62484 |                    2 |                        0.6 |                     0.003 |                       -70 |                     1 | otm                           |                          50 |                             120 |                                180 |                   52.4489 |           4.52364 |         36.3636 |            0.17267  |                       8.62484 |                  11 |
-
-Preview (first rows):
-
-```csv
-rank,trial_number,objective_value,param_entry_window,param_stretch_threshold,param_reclaim_percentage,param_cooldown_period_seconds,param_take_profit_percent,param_stop_loss_percent,param_max_trade_duration_seconds,param_strikes_depth,param_option_selection_mode,attr_total_trades,attr_return_on_risk_percent
-1,12,84.5,4,0.006,0.6,120,50,-50,180,1,otm,24,84.5
-2,37,79.2,1,0.004,0.7,180,60,-60,300,1,itm,18,79.2
-```
