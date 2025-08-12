@@ -349,7 +349,6 @@ def run_backtest(params, data_loader, issue_tracker):
                         # Track option contract selection
                         issue_tracker["opportunities"]["total_options_contracts"] += 1
                         
-            
             # Count the number of entry intent signals for the day
             daily_entry_intent_signals = stretch_signals['entry_intent'].sum()
             total_entry_intent_signals += daily_entry_intent_signals
