@@ -1,30 +1,16 @@
-### Quickstart
+# Quickstart
 
-Run the strategy with bundled synthetic data. No API key or network calls required.
+Run `strategy/` with bundled synthetic data. No API key or network calls required.
 
-### One-time setup
+## What It Does
 
-```powershell
-# Windows PowerShell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-```
-
-### Run
-
-```powershell
-python quickstart/run_strategy.py
-```
-
-What this script does:
-- Copies `quickstart/synthetic_data/` into `polygon_cache/` (merge-copy)
+- Copies `quickstart/synthetic_data/` into `polygon_cache/`
 - Sets dummy credentials to avoid prompts
 - Builds a local `params` dict pinned to Jan 3–5, 2023
 - Verifies required cache files exist
 - Temporarily injects those params and runs `strategy.main`
 
-### Parameters used
+### Parameters Used
 
 | Name | Value |
 |---|---|
@@ -36,11 +22,58 @@ What this script does:
 | Option Selection | `SPY`, same-day expiry, `itm`, `strikes_depth=1` |
 | Frictions | Slippage $0.02, Latency 1s, Fees $0.65 + $0.65 one-way |
 
-### Common issues
-
-- Missing cache files: the script will list missing paths and stop. Ensure `quickstart/synthetic_data/spy/` and `chain/` are present for the selected dates.
-- Modified working directory: the script `chdir`s to repo root to ensure imports work.
-
 For full strategy details, see [strategy/README.md](../strategy/).
 
+## Using Docker
+
+You do not need this repository locally. Pull the prebuilt image and run it.
+
+### Pull
+
+```powershell
+docker pull quantive/vwap_reclaim:latest
+```
+
+### Run
+
+```powershell
+docker run --rm -it quantive/vwap_reclaim:latest python quickstart/run_strategy.py
+```
+
+
+## Using Windows
+
+### Setup
+
+From the project root:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+### Run
+
+```powershell
+python quickstart/run_strategy.py
+```
+
+## Using Mac
+
+### Setup
+
+From the project root:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### Run
+
+```bash
+python quickstart/run_strategy.py
+```
 
