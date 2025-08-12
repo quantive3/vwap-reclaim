@@ -4,9 +4,6 @@ from pathlib import Path
 import sys
 from typing import Dict, Any
 
-# We'll import strategy modules after ensuring sys.path includes repo root
-
-
 def ensure_cache(repo_root: Path) -> Path:
     """
     Ensure the synthetic data is available at polygon_cache/ by copying
@@ -56,7 +53,7 @@ def set_dummy_credentials() -> None:
 def build_quickstart_params() -> Dict[str, Any]:
     """
     Build a self-contained parameter set that only uses bundled synthetic data.
-    Dates are pinned to match the quickstart synthetic dataset.
+    Dates are pinned to match the synthetic dataset.
     """
     from datetime import time
 
@@ -66,7 +63,7 @@ def build_quickstart_params() -> Dict[str, Any]:
         "silent_mode": False,
         "enable_profiling": False,
 
-        # Backtest period - matches quickstart synthetic dataset (Jan 3-5, 2023)
+        # Backtest period - must match synthetic dataset (Jan 3-5, 2023)
         "start_date": "2023-01-03",
         "end_date": "2023-01-05",
 

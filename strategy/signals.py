@@ -6,7 +6,7 @@ import hashlib  # noqa: F401
 
 def detect_stretch_signal(df_rth_filled, params, debug_mode=False, silent_mode=False):
     """
-    Detects stretch signals when SPY price moves beyond VWAP by ±0.3%.
+    Detects stretch signals when SPY price moves beyond VWAP by X%.
 
     Parameters:
     - df_rth_filled: DataFrame containing SPY price and VWAP data.
@@ -145,7 +145,7 @@ def detect_partial_reclaims(df_rth_filled, stretch_signals, params, debug_mode=F
         label = row['stretch_label']
         vwap_at_stretch = row['vwap_running']  # noqa: F841
 
-        # Extract the reclaim window (up to 60 seconds ahead)
+        # Extract the reclaim window (up to N seconds ahead)
         reclaim_window = df_rth_filled[
             (df_rth_filled['ts_raw'] > stretch_time) &
             (df_rth_filled['ts_raw'] <= stretch_time + pd.Timedelta(seconds=cooldown_seconds))

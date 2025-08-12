@@ -41,7 +41,8 @@ def get_credential(var_name, default=None):
         f"or add it to secret.py."
     )
 
-# Define all credentials used in the project
+# Polygon.io API key
+# Currently requires Stocks and Options Developer Plans (or higher)
 API_KEY = get_credential("API_KEY")
 
 # PostgreSQL credentials

@@ -1,15 +1,13 @@
 # === Backtest Module ===
-# This module contains the run_backtest function extracted from main.py
-# It is a straight extraction and must remain behaviorally identical 
-# to the original implementation.
+# Contains the run_backtest function
 import pandas as pd
 import numpy as np  # noqa: F401
 from datetime import time
 
-# === STEP 7: Stretch Signal Detection ===
+# === Stretch Signal Detection ===
 def detect_stretch_signal(df_rth_filled, params):
     """
-    Detects stretch signals when SPY price moves beyond VWAP by ±0.3%.
+    Detects stretch signals when SPY price moves beyond VWAP by X%.
 
     Parameters:
     - df_rth_filled: DataFrame containing SPY price and VWAP data.
@@ -22,7 +20,7 @@ def detect_stretch_signal(df_rth_filled, params):
     from strategy.signals import detect_stretch_signal as detect_stretch_signal_from_signals
     return detect_stretch_signal_from_signals(df_rth_filled, params, params['debug_mode'], params.get('silent_mode', False))
 
-# === STEP 7b: Detect Partial Reclaims ===
+# === Detect Partial Reclaims ===
 def detect_partial_reclaims(df_rth_filled, stretch_signals, params):
     """
     For each stretch signal, detect if a partial reclaim toward VWAP occurs within the cooldown window.
@@ -32,7 +30,7 @@ def detect_partial_reclaims(df_rth_filled, stretch_signals, params):
     from strategy.signals import detect_partial_reclaims as detect_partial_reclaims_from_signals
     return detect_partial_reclaims_from_signals(df_rth_filled, stretch_signals, params, params['debug_mode'], params.get('silent_mode', False))
 
-# === STEP 7f: Late Entry Blocker Failsafe ===
+# === Late Entry Blocker Failsafe ===
 def check_late_entry_cutoff(entry_time, params):
     """
     Check if the entry time is past the late entry cutoff time.
@@ -62,7 +60,7 @@ def check_late_entry_cutoff(entry_time, params):
     
     return False, None
 
-# === STEP 8: Define the backtest function ===
+# === Define the backtest function ===
 def run_backtest(params, data_loader, issue_tracker):
     """
     Run a backtest over a date range using the specified parameters.
@@ -108,7 +106,7 @@ def run_backtest(params, data_loader, issue_tracker):
         issue_tracker["days"]["attempted"] += 1
 
         try:
-            # === STEP 5a: Load or pull SPY OHLCV ===
+            # === Load or pull SPY OHLCV ===
             df_rth_filled = data_loader.load_spy(date)
             
             # If data loading failed, skip this day
@@ -116,7 +114,7 @@ def run_backtest(params, data_loader, issue_tracker):
                 issue_tracker["days"]["skipped_warnings"] += 1
                 continue
 
-            # === STEP 5b: Load or pull option chain ===
+            # === Load or pull option chain ===
             df_chain = data_loader.load_chain(date)
             
             # If data loading failed, skip this day
@@ -158,7 +156,7 @@ def run_backtest(params, data_loader, issue_tracker):
             # Initialize container for daily contracts
             daily_contracts = []
             
-            # MODIFIED: Process ALL valid entries instead of just the first one
+            # Process ALL valid entries instead of just the first one
             if not valid_entries.empty:
                 if debug_mode:
                     print(f"✅ Found {len(valid_entries)} valid entry signals for {date}")
@@ -199,10 +197,10 @@ def run_backtest(params, data_loader, issue_tracker):
                     # We'll add the look-ahead bias verification log after latency is applied
                     
                     if selected_contract:
-                        # Now we need to load the option price data for the selected contract
+                        # We need to load the option price data for the selected contract
                         option_ticker = selected_contract['ticker']
                         
-                        # === STEP 5d: Load or pull option price data ===
+                        # === Load or pull option price data ===
                         df_option_aligned, option_entry_price, option_load_status = data_loader.load_option(
                             ticker=option_ticker,
                             date=date,
@@ -329,7 +327,7 @@ def run_backtest(params, data_loader, issue_tracker):
                             'latency_seconds': params.get('latency_seconds', 0),
                             'latency_applied': params.get('latency_seconds', 0) > 0,
                             'entry_spy_price': spy_price_at_entry,
-                            'spy_price_at_signal': spy_price_at_signal,  # Add this one new field 
+                            'spy_price_at_signal': spy_price_at_signal,  
                             'entry_option_price': option_entry_price,
                             'price_staleness_seconds': price_staleness,
                             'is_price_stale': is_price_stale,
@@ -351,7 +349,6 @@ def run_backtest(params, data_loader, issue_tracker):
                         # Track option contract selection
                         issue_tracker["opportunities"]["total_options_contracts"] += 1
                         
-                        # Note: No longer deleting df_option_aligned here, will clean up after all processing
             
             # Count the number of entry intent signals for the day
             daily_entry_intent_signals = stretch_signals['entry_intent'].sum()
@@ -363,7 +360,7 @@ def run_backtest(params, data_loader, issue_tracker):
 
             if debug_mode:
                 print(f"🎯 Entry intent signals (valid reclaims): {daily_entry_intent_signals}")
-                # UPDATED: Report successful entries vs attempted entries
+                # Report successful entries vs attempted entries
                 successful_entries = len(daily_contracts)
                 print(f"💰 Successful contract entries: {successful_entries}/{daily_entry_intent_signals} ({(successful_entries/daily_entry_intent_signals*100):.1f}% success rate)" if daily_entry_intent_signals > 0 else "💰 No valid entry signals to process")
                 

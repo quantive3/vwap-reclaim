@@ -3,7 +3,7 @@ FROM python:3.9-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies (including PostgreSQL client)
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
     python3-dev \
@@ -29,5 +29,5 @@ ENV API_KEY="" \
     PG_USER="" \
     PG_PASSWORD=""
 
-# Default command to run the optimizer
-CMD ["python", "check_db.py"] 
+# Default command to run main.py (single backtest)
+CMD ["python", "main.py"] 

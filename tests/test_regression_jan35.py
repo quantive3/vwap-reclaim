@@ -6,7 +6,7 @@ from datetime import time
 import strategy.params as params_module
 
 def test_jan35_regression(capsys, monkeypatch, tmp_path):
-    # 1) Ensure we never get prompted for credentials in CI
+    # Ensure we never get prompted for credentials in CI
     monkeypatch.setenv("API_KEY", "DUMMY")
     monkeypatch.setenv("PG_HOST", "DUMMY")
     monkeypatch.setenv("PG_PORT", "5432")
@@ -20,7 +20,7 @@ def test_jan35_regression(capsys, monkeypatch, tmp_path):
     shutil.copytree(synthetic, dest)
     monkeypatch.chdir(tmp_path)
 
-    # 2) Completely override initialize_parameters() with the exact dict we want
+    # Completely override initialize_parameters() with the exact dict we want
     def fake_init():
         return {
             "debug_mode": False,
@@ -57,10 +57,10 @@ def test_jan35_regression(capsys, monkeypatch, tmp_path):
         }
     monkeypatch.setattr(params_module, "initialize_parameters", fake_init)
 
-    # 3) Run the entire strategy as a script
+    # Run the entire strategy as a script
     runpy.run_module("strategy.main", run_name="__main__")
 
-    # 4) Capture stdout and assert the baseline is byte-for-byte present
+    # Capture stdout and assert the baseline is byte-for-byte present
     out = capsys.readouterr().out
     baseline = Path(__file__).parent / "fixtures" / "jan35_baseline.txt"
     expected = baseline.read_text(encoding="utf-8")

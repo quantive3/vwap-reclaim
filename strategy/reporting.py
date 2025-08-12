@@ -102,7 +102,7 @@ def print_performance_summary(contracts_df):
         if not contracts_df.empty:
             print("\n" + "=" * 20 + " PERFORMANCE SUMMARY " + "=" * 20)
 
-            # 1. Total number of trades
+            # Total number of trades
             total_trades = len(contracts_df)
             print(f"\n💼 TOTAL TRADES: {total_trades}")
             # Filter for trades with valid fully-adjusted P&L data (slippage + fees)

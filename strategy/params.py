@@ -11,9 +11,9 @@ def initialize_parameters():
     """
     return {
         # Print/info gates
-        'debug_mode': False,  # Enable/disable debug outputs. Significantly slows execution.
+        'debug_mode': True,  # Enable/disable debug outputs. Significantly slows execution.
         'silent_mode': False,  # Enable/disable all non-debug print outputs
-        'enable_profiling': False,  # Enable/disable cProfile profiling
+        'enable_profiling': False,  # Enable/disable cProfile
 
         # Backtest period
         'start_date': "2023-01-04",
@@ -24,14 +24,14 @@ def initialize_parameters():
         'entry_end_time': time(15, 45),
         
         # Entry parameters
-        'stretch_threshold': 0.003,  # 0.3%
-        'reclaim_threshold': 0.0021,  # 0.2% - should always be less than stretch threshold
+        'stretch_threshold': 0.003,  # e.g. 0.003 = 0.3%
+        'reclaim_threshold': 0.0021,  # e.g. 0.002 = 0.2% - should always be less than stretch threshold
         'cooldown_period_seconds': 120,  # Cooldown period in seconds
         
         # Exit conditions
-        'take_profit_percent': 80,     # Take profit at 25% gain
-        'stop_loss_percent': -25,      # Stop loss at 50% loss
-        'max_trade_duration_seconds': 600,  # Exit after 300 seconds (5 minutes)
+        'take_profit_percent': 80,     # Take profit at X% gain
+        'stop_loss_percent': -25,      # Stop loss at Y% loss. Should be negative.
+        'max_trade_duration_seconds': 600,  # Exit after N seconds
         'late_entry_cutoff_time': time(15, 54),  # No new entries after this time
         'end_of_day_exit_time': time(15, 54),  # trade exit cutoff
         'emergency_exit_time': time(15, 55),   # absolute failsafe exit (overrides all other logic)
@@ -47,7 +47,7 @@ def initialize_parameters():
         
         # Real-world trading friction
         'slippage_amount': 0.02,   # fixed slippage per share
-        'latency_seconds': 1,    # Seconds delay between signal and execution (0 = disabled)
+        'latency_seconds': 1,    # Seconds delay between signal and execution (0 = disabled). Applied to entries and exits.
         'brokerage_fee_per_contract': 0.65,  # Brokerage fee per contract per direction (entry or exit)
         'exchange_fee_per_contract': 0.65,   # Exchange and other fees per contract per direction
         

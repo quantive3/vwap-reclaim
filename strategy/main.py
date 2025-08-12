@@ -1,4 +1,4 @@
-# === STEP 1: Standard Library Imports ===
+# === Standard Library Imports ===
 import os  # noqa: F401
 import pandas as pd
 import requests  # noqa: F401
@@ -9,7 +9,7 @@ import cProfile
 import pstats
 from filelock import FileLock  # noqa: F401
 
-# === STEP 2: Strategy Module Imports ===
+# === Strategy Module Imports ===
 from strategy.params import initialize_parameters, initialize_issue_tracker
 from strategy.data import (
     setup_cache_directories,
@@ -30,11 +30,11 @@ from strategy.exits import (  # noqa: F401
     set_issue_tracker as set_exits_issue_tracker
 )
 
-# === STEP 3: Local Cache Setup ===
+# === Local Cache Setup ===
 # Create local cache directories
 CACHE_DIR = "./polygon_cache"  # Local cache directory
 
-# === STEP 4: API Key from Secret File ===
+# === API Key from Secret File ===
 try:
     from config import API_KEY
     API_KEY_LOADED_FROM_SECRET = True
@@ -46,16 +46,7 @@ except ImportError:
 # Set pandas option to use future behavior for fill operations
 pd.set_option('future.no_silent_downcasting', True)
 
-# Functions moved to params.py
-
-# The following functions have been moved to data.py:
-# - setup_cache_directories
-# - load_with_cache_lock
-# - _fetch_spy (internal)
-# - load_spy_data
-# - load_chain_data
-
-# === STEP 6: Define Parameters ===
+# === Define Parameters ===
 # Get parameters from initialization function
 PARAMS = initialize_parameters()
 
@@ -65,7 +56,7 @@ PARAMS = initialize_parameters()
 if API_KEY_LOADED_FROM_SECRET and not PARAMS.get('silent_mode', False):
     print("✅ API key loaded from secret.py")
 
-# === STEP 6b: Initialize Issue Tracker ===
+# === Initialize Issue Tracker ===
 issue_tracker = initialize_issue_tracker(PARAMS)
 
 # Function to generate hash for dataframe verification
@@ -172,18 +163,8 @@ from strategy.option_select import select_option_contract, set_track_issue_funct
 set_track_issue_function(track_issue)
 set_debug_mode(DEBUG_MODE)
 
-# Import reporting functions to keep main.py lean
+# Import reporting functions
 from strategy.reporting import print_summary_report, print_performance_summary  # noqa: E402
-
-# === STEP 4: Caching paths ===
-# CACHE_DIR is already defined in Step 1
-# Cache directories are now set up in data.py
-
-# The following functions have been moved to strategy/backtest.py:
-# - detect_stretch_signal (wrapper)
-# - detect_partial_reclaims (wrapper)
-# - check_late_entry_cutoff
-# - run_backtest
 
 # Initialize a counter for total entry intent signals
 total_entry_intent_signals = 0
@@ -191,7 +172,7 @@ days_processed = 0
 all_contracts = []  # Master list to store all contract data
 
 if __name__ == "__main__":
-    # === STEP 8: Run backtest ===
+    # === Run backtest ===
     # Setup cache directories
     spy_dir, chain_dir, option_dir = setup_cache_directories(CACHE_DIR)
     
@@ -418,13 +399,6 @@ if __name__ == "__main__":
                 dollar_pnl_slipped_with_fees_data = contracts_df['pnl_dollars_slipped_with_fees'].dropna()
                 
                 if not dollar_pnl_data.empty:
-                    # Dollar P&L Statistics section removed as requested
-                    
-                    # Slippage-adjusted dollar P&L statistics section removed as requested
-                    
-                    # Transaction cost statistics section removed as requested
-                    
-                    # Fully adjusted P&L section removed as requested
                     
                     # Calculate total capital risked and total P&L with contract multiplier
                     total_pnl = dollar_pnl_data.sum()
@@ -433,8 +407,6 @@ if __name__ == "__main__":
                     total_pnl_slipped_with_fees = dollar_pnl_slipped_with_fees_data.sum()
                     total_risked = (contracts_df['entry_option_price'] * contracts_df['shares_per_contract'] * CONTRACTS_PER_TRADE).sum()
                     total_risked_slipped = (contracts_df['entry_option_price_slipped'] * contracts_df['shares_per_contract'] * CONTRACTS_PER_TRADE).sum()
-                    # All calculations for total P&L, win rates, etc. have been removed
-                    # since they're not used anywhere else in the code
                 
                 # Average P&L by exit reason
                 if not PARAMS.get('silent_mode', False):
@@ -487,7 +459,7 @@ if __name__ == "__main__":
             # Only include columns that exist
             existing_columns = [col for col in display_columns if col in contracts_df.columns]
             print(contracts_df[existing_columns].head(10))
-            # Also export the sample to CSV for easier review when in debug mode
+            # Export the sample to CSV for easier review when in debug mode
             contracts_df[existing_columns].head(20).to_csv("sample_trades.csv", index=False)
             print("🔄 Sample of trades also written to sample_trades.csv")
 

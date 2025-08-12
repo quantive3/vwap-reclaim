@@ -35,7 +35,7 @@ POSTGRES_URL = (
 # Track all param‐combos we’ve already tried
 seen = set()
 
-# Override backtest dates (edit these to change the backtest window)
+# Override backtest dates in strategy.params (edit these to change the backtest window)
 BACKTEST_START_DATE = "2023-01-01"
 BACKTEST_END_DATE   = "2023-01-31"
 
@@ -44,7 +44,7 @@ STUDY_NAME = "vwap_bounce_optimization_test"
 
 # Configuration flags
 ENABLE_PERSISTENCE = True  # Set to True to accumulate trials across runs
-OPTIMIZATION_SEED = None     # Set to a number for reproducible results, or None for random
+OPTIMIZATION_SEED = None     # Set to a number for reproducible results (e.g. 42) or None for random
 N_TRIALS = 1  # Adjust based on your computational budget
 
 # Database connection pool settings
@@ -53,12 +53,12 @@ DB_MAX_OVERFLOW = 5  # Additional "burst" connections above DB_POOL_SIZE
 DB_POOL_TIMEOUT = 30  # Seconds to wait for a connection from the pool
 
 # TPE Sampler configuration
-N_STARTUP_TRIALS = 250      # Number of random trials before TPE optimization starts
+N_STARTUP_TRIALS = 25      # Number of random trials before TPE optimization starts
 N_EI_CANDIDATES = 48       # Number of candidates evaluated per TPE trial
 
 # Pruning configuration
 MIN_TRADE_THRESHOLD = 10     # Minimum trades required for valid trial
-MAX_ATTEMPT_LIMIT = 600      # Maximum total attempts (including pruned trials)
+MAX_ATTEMPT_LIMIT = 60      # Maximum total attempts (including pruned trials)
 
 # Entry windows mapping - used throughout the optimization
 ENTRY_WINDOWS = {

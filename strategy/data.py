@@ -523,7 +523,7 @@ def load_option_data(option_ticker, date, cache_dir, df_rth_filled, api_key, par
             _issue_tracker["opportunities"]["failed_entries_data_issues"] += 1
             return df_option_aligned, option_entry_price, status
         
-        # Success! Option data loaded and aligned successfully
+        # Option data loaded and aligned successfully
         status['success'] = True
         return df_option_aligned, option_entry_price, status
         

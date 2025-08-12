@@ -1,7 +1,5 @@
 # === Exit Logic Module ===
-# This module contains all exit-related logic extracted from main.py
-# It is a straight extraction and must remain behaviorally identical 
-# to the original implementation.
+# Contains all exit-related logic
 import pandas as pd
 import numpy as np  # noqa: F401
 from datetime import time

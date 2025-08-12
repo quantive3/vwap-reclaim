@@ -1,7 +1,4 @@
 # === Option Selection Module ===
-# This module contains the option selection logic extracted from main.py
-# It is a straight extraction and must remain behaviorally identical 
-# to the original implementation unless intentionally changed.
 import pandas as pd  # noqa: F401
 import numpy as np  # noqa: F401
 

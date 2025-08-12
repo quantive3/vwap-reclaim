@@ -17,12 +17,12 @@ polygon_cache/
 # Exclude development/testing artifacts
 *.prof
 .cursor/
-commit_archive_before_gh/
+commit_archive/
 
 # Exclude documentation and non-essential files
 *.png
 *.xlsx
 *.csv
-optuna-pg_backup.zip 
+*.zip 
 .coverage
 htmlcov/

@@ -4,7 +4,7 @@ import os
 from optuna.trial import TrialState
 from optuna.storages import RDBStorage
 
-# Import credentials from secret file
+# Import credentials from config/secret file
 from config import PG_HOST, PG_PORT, PG_DATABASE, PG_USER, PG_PASSWORD
 
 # PostgreSQL connection info (still allows override via env vars)

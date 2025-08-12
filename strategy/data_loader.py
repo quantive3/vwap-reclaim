@@ -1,7 +1,5 @@
 # === DataLoader Class Module ===
-# This module contains the DataLoader class extracted from main.py
-# It is a straight extraction and must remain behaviorally identical 
-# to the original implementation.
+# Contains the DataLoader class
 from strategy.data import (
     load_spy_data, 
     load_chain_data, 
