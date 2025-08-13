@@ -6,6 +6,8 @@
 
 ## Introduction
 
+![VWAP Relclaim Visual](optimize/artifacts/vwap_reclaim_visual.png)
+
 An intraday options backtesting framework - built around VWAP stretch-and-reclaim signals. Built with clean boundaries for data, signals, option selection, exits, and reporting.
 
 Includes simulations for contract scaling and real-world friction (latency, slippage, fees).
