@@ -14,7 +14,7 @@ An intraday options backtesting framework - built around VWAP stretch-and-reclai
 
 Includes simulations for contract scaling and real-world friction (latency, slippage, fees).
 
-Fully cacheable, sweep-ready, and designed for reproducible backtests and optimization.
+Fully cacheable, sweep-ready, and designed for reproducible backtests and Bayesian optimization.
 
 (With an obnoxious amount of prints for data integrity and auditability.)
 
