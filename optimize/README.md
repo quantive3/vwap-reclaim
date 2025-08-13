@@ -1,5 +1,7 @@
 # Strategy Optimization
 
+[Objective and Parameters](#objective-and-parameters) | [Useful Settings](#useful-settings-for-smartpy) | [Artifacts](#artifacts) | [Run It](#run-it)
+
 Parameter sweeps, powered by Optuna, with Postgres-backed persistence.
 
 
@@ -13,11 +15,11 @@ Parameter sweeps, powered by Optuna, with Postgres-backed persistence.
 | `export_top_trials.py` | CSV exporter. Dumps the top-N completed trials (objective, parameters, and user attributes) to `top_trials.csv`. |
 
 
-## Objective and Dimensions
+## Objective and Parameters
 
 **Objective:** Maximize average return on risk (`return_on_risk_percent`).
 
-### Dimensions:
+### Sweepable Parameters:
 
 | Name | Values |
 |---|---|
@@ -32,13 +34,7 @@ Parameter sweeps, powered by Optuna, with Postgres-backed persistence.
 | `option_selection_mode` | `itm`, `otm` |
 
 
-## Run It
-
-```bash
-python -m optimize.smart
-```
-
-### Useful Settings Inside `smart.py`:
+## Useful Settings for `smart.py`
 
 | Setting | Purpose |
 |---|---|
@@ -51,7 +47,7 @@ python -m optimize.smart
 | `MAX_ATTEMPT_LIMIT` | Cap on total attempts (completed + pruned). Prevents `smart.py` from running indefinitely. |
 
 
-## Artifacts (Examples)
+## Artifacts
 
 ### Optimization History
 
@@ -59,7 +55,7 @@ Shows the objective value (return on risk) plotted against the sequence of compl
 
 ![Optimization History](artifacts/db_opt_history.png)
 
-### Top Trials 
+### Top Trials (Raw)
 
 Top completed trials, sorted from best to worst objective.
 
@@ -77,3 +73,10 @@ Includes parameters and stored metrics (as user attributes).
 |      8 |            128 |          10.0207  |                    0 |                        0.4 |                     0.003 |                       -60 |                     1 | itm                           |                          60 |                             600 |                                180 |                  106.67   |          10.689   |         45      |            0.292536 |                      10.0207  |                  20 |
 |      9 |             19 |           9.47377 |                    2 |                        0.6 |                     0.003 |                       -25 |                     1 | itm                           |                          25 |                             120 |                                120 |                   33.2209 |           3.14727 |         36.3636 |            0.144901 |                       9.47377 |                  11 |
 |     10 |             32 |           8.62484 |                    2 |                        0.6 |                     0.003 |                       -70 |                     1 | otm                           |                          50 |                             120 |                                180 |                   52.4489 |           4.52364 |         36.3636 |            0.17267  |                       8.62484 |                  11 |
+
+
+## Run It
+
+```bash
+python -m optimize.smart
+```
