@@ -7,7 +7,7 @@
 ## Introduction
 
 <p align="center">
-  <img src="optimize/artifacts/vwap_reclaim_visual.png" alt="VWAP Reclaim Visual" width="500">
+  <img src="optimize/artifacts/vwap_reclaim_visual.png" alt="VWAP Reclaim Visual" width="600">
 </p>
 
 An intraday options backtesting framework - built around VWAP stretch-and-reclaim signals. Built with clean boundaries for data, signals, option selection, exits, and reporting.
