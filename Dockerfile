@@ -29,5 +29,5 @@ ENV API_KEY="" \
     PG_USER="" \
     PG_PASSWORD=""
 
-# Default command to run main.py (single backtest)
-CMD ["python", "main.py"] 
+# Default command to run quickstart/run_strategy.py (with synthetic data)
+CMD ["python", "quickstart/run_strategy.py"] 
